@@ -118,10 +118,10 @@ final class HUD {
         let buttonHeight: CGFloat = 38
         let buttonSpacing: CGFloat = 12
 
-        // 画面サイズを取得して最大サイズを決定
+        // 画面サイズを取得して最大サイズを決定（100%表示）
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
-        let maxPanelWidth = min(screenFrame.width * 0.85, 1200)
-        let maxPanelHeight = screenFrame.height * 0.85
+        let maxPanelWidth = screenFrame.width - 40  // 端に少し余白
+        let maxPanelHeight = screenFrame.height - 40
 
         // メッセージサイズ計算（大きなフォント）
         let font = NSFont.systemFont(ofSize: 36, weight: .medium)
@@ -359,17 +359,17 @@ final class HUD {
     @objc private func saveImage() {
         guard let imageData = currentImage else { return }
 
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.png]
-        savePanel.nameFieldStringValue = "ClipBridge-\(Int(Date().timeIntervalSince1970)).png"
-        savePanel.begin { [weak self] response in
-            guard response == .OK, let url = savePanel.url else { return }
-            do {
-                try imageData.write(to: url)
-                self?.show("画像を保存しました")
-            } catch {
-                self?.show("保存に失敗しました")
-            }
+        // ClipBridge受信フォルダに直接保存
+        let inboxDir = Const.inboxDirectory
+        do {
+            try FileManager.default.createDirectory(at: inboxDir, withIntermediateDirectories: true)
+            let fileName = "ClipBridge-\(Int(Date().timeIntervalSince1970)).png"
+            let destURL = inboxDir.appendingPathComponent(fileName)
+            try imageData.write(to: destURL)
+            show("画像を保存しました: \(fileName)")
+            NSWorkspace.shared.open(inboxDir)
+        } catch {
+            show("保存に失敗しました: \(error.localizedDescription)")
         }
     }
 

@@ -167,15 +167,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         imageBtn.action = #selector(messageDialogSelectImage(_:))
         bgView.addSubview(imageBtn)
 
-        // ファイル添付ボタン
-        let fileBtn = NSButton(frame: NSRect(x: 130, y: buttonY, width: 100, height: 28))
-        fileBtn.title = "ファイル"
-        fileBtn.image = NSImage(systemSymbolName: "doc", accessibilityDescription: "ファイル")
+        // フォルダ添付ボタン
+        let fileBtn = NSButton(frame: NSRect(x: 130, y: buttonY, width: 110, height: 28))
+        fileBtn.title = "フォルダ"
+        fileBtn.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "フォルダ")
         fileBtn.imagePosition = .imageLeading
         fileBtn.bezelStyle = .rounded
         fileBtn.font = .systemFont(ofSize: 12)
         fileBtn.target = self
-        fileBtn.action = #selector(messageDialogSelectFile(_:))
+        fileBtn.action = #selector(messageDialogSelectFolder(_:))
         bgView.addSubview(fileBtn)
 
         // 添付プレビューラベル
@@ -256,28 +256,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func messageDialogSelectFile(_ sender: NSButton) {
+    @objc private func messageDialogSelectFolder(_ sender: NSButton) {
         guard let panel = sender.window as? NSPanel else { return }
 
         let openPanel = NSOpenPanel()
-        openPanel.allowsMultipleSelection = true
-        openPanel.canChooseDirectories = false
-        openPanel.message = "送信するファイルを選択"
+        openPanel.allowsMultipleSelection = false
+        openPanel.canChooseDirectories = true
+        openPanel.canChooseFiles = false
+        openPanel.message = "送信するフォルダを選択"
 
         openPanel.beginSheetModal(for: panel) { [weak self] response in
-            guard let self, response == .OK else { return }
+            guard let self, response == .OK, let folderURL = openPanel.url else { return }
 
             var files: [(name: String, data: Data)] = []
             var totalSize = 0
+            let maxSize = 50 * 1024 * 1024
 
-            for url in openPanel.urls {
-                guard let data = try? Data(contentsOf: url) else { continue }
+            // フォルダ内のファイルを取得（サブフォルダは除く）
+            let fm = FileManager.default
+            guard let contents = try? fm.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else {
+                HUD.shared.show("フォルダを読み込めませんでした")
+                return
+            }
+
+            for fileURL in contents {
+                // ディレクトリはスキップ
+                guard let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+                      resourceValues.isRegularFile == true else { continue }
+
+                guard let data = try? Data(contentsOf: fileURL) else { continue }
+
                 totalSize += data.count
-                if totalSize > 50 * 1024 * 1024 {
-                    HUD.shared.show("合計サイズが50MBを超えています")
+                if totalSize > maxSize {
+                    HUD.shared.show("合計サイズが50MBを超えています（一部のファイルのみ送信）")
                     break
                 }
-                files.append((name: url.lastPathComponent, data: data))
+                files.append((name: fileURL.lastPathComponent, data: data))
+            }
+
+            if files.isEmpty {
+                HUD.shared.show("フォルダ内にファイルがありません")
+                return
             }
 
             self.selectedFiles = files
