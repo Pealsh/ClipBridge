@@ -20,7 +20,7 @@ enum Const {
     }
 }
 
-/// ホットキー設定。既定は 送信 = Option+C、一時停止 = Option+Command+S。
+/// ホットキー設定。既定は 送信 = Option+Command+C、一時停止 = Option+Command+S。
 /// `~/Library/Application Support/ClipBridge/hotkeys.json` で上書きできる。
 struct HotKeyConfig: Codable {
     /// 仮想キーコード（kVK_ANSI_C など）
@@ -33,7 +33,7 @@ struct HotKeyConfig: Codable {
     static let `default` = HotKeyConfig(
         sendKeyCode: UInt32(kVK_ANSI_C),
         pauseKeyCode: UInt32(kVK_ANSI_S),
-        sendModifiers: UInt32(optionKey),
+        sendModifiers: UInt32(optionKey | cmdKey),
         pauseModifiers: UInt32(optionKey | cmdKey)
     )
 
