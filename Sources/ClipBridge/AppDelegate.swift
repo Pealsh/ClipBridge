@@ -429,6 +429,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openInbox.target = self
         menu.addItem(openInbox)
 
+        // 保存場所サブメニュー
+        let saveLocMenu = NSMenu()
+        for loc in SaveLocation.allCases {
+            let item = NSMenuItem(title: loc.displayName, action: #selector(menuChangeSaveLocation(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = loc
+            if SaveLocationManager.shared.currentLocation == loc {
+                item.state = .on
+            }
+            saveLocMenu.addItem(item)
+        }
+        let saveLocRoot = NSMenuItem(title: "保存場所: \(SaveLocationManager.shared.currentLocation.displayName)", action: nil, keyEquivalent: "")
+        menu.addItem(saveLocRoot)
+        menu.setSubmenu(saveLocMenu, for: saveLocRoot)
+
         menu.addItem(.separator())
 
         let rename = NSMenuItem(title: "この Mac の名前を変更…", action: #selector(menuRename), keyEquivalent: "")
@@ -487,6 +502,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let dir = Const.inboxDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         NSWorkspace.shared.open(dir)
+    }
+
+    @objc private func menuChangeSaveLocation(_ sender: NSMenuItem) {
+        guard let loc = sender.representedObject as? SaveLocation else { return }
+
+        if loc == .custom {
+            // カスタムフォルダを選択
+            let openPanel = NSOpenPanel()
+            openPanel.canChooseDirectories = true
+            openPanel.canChooseFiles = false
+            openPanel.allowsMultipleSelection = false
+            openPanel.message = "保存先フォルダを選択してください"
+            openPanel.prompt = "選択"
+
+            NSApp.activate(ignoringOtherApps: true)
+            if openPanel.runModal() == .OK, let url = openPanel.url {
+                SaveLocationManager.shared.customPath = url
+                SaveLocationManager.shared.currentLocation = .custom
+                HUD.shared.show("保存先を変更しました: \(url.lastPathComponent)/ClipBridge")
+            }
+        } else {
+            SaveLocationManager.shared.currentLocation = loc
+            HUD.shared.show("保存先を変更しました: \(loc.displayName)/ClipBridge")
+        }
+        rebuildMenu()
     }
 
     @objc private func menuRename() {

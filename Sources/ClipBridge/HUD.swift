@@ -366,6 +366,19 @@ final class HUD {
         guard index >= 0 && index < notifications.count else { return }
         let notifData = notifications[index]
         guard let data = notifData.image else { return }
+
+        // 初回保存時は保存場所を選択
+        if !SaveLocationManager.shared.isConfigured {
+            showSaveLocationPicker { [weak self] in
+                self?.doSaveImage(data)
+            }
+            return
+        }
+
+        doSaveImage(data)
+    }
+
+    private func doSaveImage(_ data: Data) {
         let dir = Const.inboxDirectory
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -383,10 +396,23 @@ final class HUD {
         guard index >= 0 && index < notifications.count else { return }
         let notifData = notifications[index]
         guard !notifData.files.isEmpty else { return }
+
+        // 初回保存時は保存場所を選択
+        if !SaveLocationManager.shared.isConfigured {
+            showSaveLocationPicker { [weak self] in
+                self?.doSaveFiles(notifData.files)
+            }
+            return
+        }
+
+        doSaveFiles(notifData.files)
+    }
+
+    private func doSaveFiles(_ files: [(name: String, data: Data)]) {
         let dir = Const.inboxDirectory
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            for file in notifData.files {
+            for file in files {
                 var dest = dir.appendingPathComponent(file.name)
                 var i = 1
                 while FileManager.default.fileExists(atPath: dest.path) {
@@ -397,10 +423,45 @@ final class HUD {
                 }
                 try file.data.write(to: dest)
             }
-            show("\(notifData.files.count)件を保存しました")
+            show("\(files.count)件を保存しました")
             NSWorkspace.shared.open(dir)
         } catch {
             show("保存に失敗しました")
+        }
+    }
+
+    /// 初回保存時に保存場所を選択するダイアログを表示
+    private func showSaveLocationPicker(completion: @escaping () -> Void) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "保存場所を選択"
+        alert.informativeText = "受信したファイルをどこに保存しますか？\n後からメニューで変更できます。"
+        alert.addButton(withTitle: "ダウンロード")
+        alert.addButton(withTitle: "デスクトップ")
+        alert.addButton(withTitle: "フォルダを選択...")
+
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            SaveLocationManager.shared.currentLocation = .downloads
+            completion()
+        case .alertSecondButtonReturn:
+            SaveLocationManager.shared.currentLocation = .desktop
+            completion()
+        default:
+            // カスタムフォルダを選択
+            let openPanel = NSOpenPanel()
+            openPanel.canChooseDirectories = true
+            openPanel.canChooseFiles = false
+            openPanel.allowsMultipleSelection = false
+            openPanel.message = "保存先フォルダを選択してください"
+            openPanel.prompt = "選択"
+
+            if openPanel.runModal() == .OK, let url = openPanel.url {
+                SaveLocationManager.shared.customPath = url
+                SaveLocationManager.shared.currentLocation = .custom
+                completion()
+            }
         }
     }
 

@@ -13,11 +13,81 @@ enum Const {
 
     /// 受信ファイルの保存先
     static var inboxDirectory: URL {
-        let base = FileManager.default
-            .urls(for: .downloadsDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser
+        SaveLocationManager.shared.saveDirectory
+    }
+}
+
+/// 保存場所の種類
+enum SaveLocation: String, Codable, CaseIterable {
+    case downloads = "downloads"
+    case desktop = "desktop"
+    case custom = "custom"
+
+    var displayName: String {
+        switch self {
+        case .downloads: return "ダウンロード"
+        case .desktop: return "デスクトップ"
+        case .custom: return "カスタム"
+        }
+    }
+}
+
+/// 保存場所の設定を管理
+final class SaveLocationManager {
+    static let shared = SaveLocationManager()
+
+    private let locationKey = "saveLocation"
+    private let customPathKey = "customSavePath"
+
+    var currentLocation: SaveLocation {
+        get {
+            if let raw = UserDefaults.standard.string(forKey: locationKey),
+               let loc = SaveLocation(rawValue: raw) {
+                return loc
+            }
+            return .downloads
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: locationKey)
+        }
+    }
+
+    var customPath: URL? {
+        get {
+            if let path = UserDefaults.standard.string(forKey: customPathKey) {
+                return URL(fileURLWithPath: path)
+            }
+            return nil
+        }
+        set {
+            UserDefaults.standard.set(newValue?.path, forKey: customPathKey)
+        }
+    }
+
+    var isConfigured: Bool {
+        UserDefaults.standard.string(forKey: locationKey) != nil
+    }
+
+    var saveDirectory: URL {
+        let base: URL
+        switch currentLocation {
+        case .downloads:
+            base = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                ?? FileManager.default.homeDirectoryForCurrentUser
+        case .desktop:
+            base = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
+                ?? FileManager.default.homeDirectoryForCurrentUser
+        case .custom:
+            if let custom = customPath {
+                return custom.appendingPathComponent("ClipBridge", isDirectory: true)
+            }
+            base = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                ?? FileManager.default.homeDirectoryForCurrentUser
+        }
         return base.appendingPathComponent("ClipBridge", isDirectory: true)
     }
+
+    private init() {}
 }
 
 /// ホットキー設定。
