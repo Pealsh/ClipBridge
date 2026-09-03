@@ -9,16 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotKeys = HotKeyManager()
     private var statusItem: NSStatusItem!
 
-    /// 相手から届いて、まだ貼り付けていない内容
-    private var inbox: (content: ClipContent, from: String, at: Date)?
-
     private var hotKeyConfig = HotKeyConfig.load()
     private var statusText = "起動中…"
-
-    private var autoPaste: Bool {
-        get { UserDefaults.standard.bool(forKey: "autoPaste") }
-        set { UserDefaults.standard.set(newValue, forKey: "autoPaste") }
-    }
 
     // MARK: - 起動
 
@@ -51,8 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyHotKeys() {
         hotKeys.apply(config: hotKeyConfig,
-                      onSend: { [weak self] in self?.sendClipboard() },
-                      onReceive: { [weak self] in self?.receiveClipboard() })
+                      onSend: { [weak self] in self?.sendClipboard() })
 
         if !hotKeys.failures.isEmpty {
             let list = hotKeys.failures.joined(separator: ", ")
@@ -61,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
-    /// ⌥V — 自分のクリップボードを接続中の相手へ送る
+    /// ⌥C — 自分のクリップボードを接続中の相手へ送る
     private func sendClipboard() {
         guard let content = ClipboardService.read() else {
             HUD.shared.show("クリップボードが空です")
@@ -75,46 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if n == 0 {
             HUD.shared.show("接続中の端末がありません")
         } else {
-            HUD.shared.show("送信 → \(n) 台   \(content.summary)")
-        }
-    }
-
-    /// ⌥C — 届いている内容をクリップボードに載せる。
-    /// 何も届いていなければ、相手の今のクリップボードを取りに行く。
-    private func receiveClipboard() {
-        if let inbox {
-            let note = ClipboardService.write(inbox.content)
-            self.inbox = nil
-            rebuildMenu()
-            HUD.shared.show("貼り付け可能: \(note)")
-            if autoPaste { performPaste() }
-            return
-        }
-
-        let n = manager.requestPullFromAll()
-        if n == 0 {
-            HUD.shared.show("接続中の端末がありません")
-        } else {
-            HUD.shared.show("相手のクリップボードを取得中…")
-        }
-    }
-
-    /// ⌘V を合成して前面アプリに貼り付ける（アクセシビリティ権限が必要）
-    private func performPaste() {
-        guard AXIsProcessTrusted() else {
-            HUD.shared.show("自動貼り付けにはアクセシビリティ権限が必要です")
-            return
-        }
-        guard let src = CGEventSource(stateID: .combinedSessionState) else { return }
-        let v = CGKeyCode(kVK_ANSI_V)
-        let down = CGEvent(keyboardEventSource: src, virtualKey: v, keyDown: true)
-        let up   = CGEvent(keyboardEventSource: src, virtualKey: v, keyDown: false)
-        down?.flags = .maskCommand
-        up?.flags = .maskCommand
-        // ⌥C を押した指がまだ Option を離していない可能性があるので少し待つ
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            down?.post(tap: .cghidEventTap)
-            up?.post(tap: .cghidEventTap)
+            HUD.shared.show("\(n) 台に送信しました")
         }
     }
 
@@ -173,41 +125,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        if let inbox {
-            let f = DateFormatter(); f.dateFormat = "HH:mm"
-            let item = NSMenuItem(
-                title: "受信済み: \(inbox.content.summary)（\(inbox.from) \(f.string(from: inbox.at))）",
-                action: #selector(menuReceive), keyEquivalent: "")
-            item.target = self
-            menu.addItem(item)
-        }
-
-        let sendItem = NSMenuItem(title: "クリップボードを送信", action: #selector(menuSend), keyEquivalent: "")
+        let sendItem = NSMenuItem(title: "クリップボードを送信（\(hotKeyConfig.sendDescription)）", action: #selector(menuSend), keyEquivalent: "")
         sendItem.target = self
-        sendItem.toolTip = hotKeyConfig.sendDescription
         menu.addItem(sendItem)
-
-        let recvItem = NSMenuItem(title: "受信した内容を取り込む", action: #selector(menuReceive), keyEquivalent: "")
-        recvItem.target = self
-        recvItem.toolTip = hotKeyConfig.receiveDescription
-        menu.addItem(recvItem)
-
-        let keys = NSMenuItem(
-            title: "ショートカット: 送信 \(hotKeyConfig.sendDescription) / 受信 \(hotKeyConfig.receiveDescription)",
-            action: nil, keyEquivalent: "")
-        keys.isEnabled = false
-        menu.addItem(keys)
-
-        menu.addItem(.separator())
-
-        let auto = NSMenuItem(title: "受信後に自動で ⌘V を送る", action: #selector(toggleAutoPaste), keyEquivalent: "")
-        auto.target = self
-        auto.state = autoPaste ? .on : .off
-        menu.addItem(auto)
 
         let openInbox = NSMenuItem(title: "受信ファイルのフォルダを開く", action: #selector(menuOpenInbox), keyEquivalent: "")
         openInbox.target = self
         menu.addItem(openInbox)
+
+        menu.addItem(.separator())
 
         let rename = NSMenuItem(title: "この Mac の名前を変更…", action: #selector(menuRename), keyEquivalent: "")
         rename.target = self
@@ -257,17 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - メニュー操作
 
-    @objc private func menuSend()    { sendClipboard() }
-    @objc private func menuReceive() { receiveClipboard() }
-
-    @objc private func toggleAutoPaste() {
-        autoPaste = !autoPaste
-        if autoPaste && !AXIsProcessTrusted() {
-            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-            _ = AXIsProcessTrustedWithOptions(opts as CFDictionary)
-        }
-        rebuildMenu()
-    }
+    @objc private func menuSend() { sendClipboard() }
 
     @objc private func menuOpenInbox() {
         let dir = Const.inboxDirectory
@@ -326,9 +242,9 @@ extension AppDelegate: PeerManagerDelegate {
     }
 
     func peerManager(_ m: PeerManager, didReceive content: ClipContent, from name: String) {
-        inbox = (content: content, from: name, at: Date())
-        rebuildMenu()
-        HUD.shared.show("\(name) から受信: \(content.summary)　\(hotKeyConfig.receiveDescription) で取り込み")
+        // 受信したらすぐにクリップボードに反映
+        let note = ClipboardService.write(content)
+        HUD.shared.show("\(name) から受信: \(note)")
     }
 
     func peerManager(_ m: PeerManager,

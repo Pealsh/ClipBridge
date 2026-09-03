@@ -33,7 +33,8 @@ final class HUD {
 
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
-            let origin = NSPoint(x: frame.midX - w / 2, y: frame.minY + 120)
+            // 画面上部に表示（メニューバーの少し下）
+            let origin = NSPoint(x: frame.midX - w / 2, y: frame.maxY - h - 50)
             panel.setFrame(NSRect(origin: origin, size: NSSize(width: w, height: h)), display: false)
         }
         label.frame = NSRect(x: 20, y: 13, width: w - 40, height: h - 26)
