@@ -20,17 +20,21 @@ enum Const {
     }
 }
 
-/// ホットキー設定。既定は 送信 = Option+C。
+/// ホットキー設定。既定は 送信 = Option+C、一時停止 = Option+Command+S。
 /// `~/Library/Application Support/ClipBridge/hotkeys.json` で上書きできる。
 struct HotKeyConfig: Codable {
     /// 仮想キーコード（kVK_ANSI_C など）
     var sendKeyCode: UInt32
+    var pauseKeyCode: UInt32
     /// Carbon の修飾キーマスク（optionKey=2048, cmdKey=256, shiftKey=512, controlKey=4096）
     var sendModifiers: UInt32
+    var pauseModifiers: UInt32
 
     static let `default` = HotKeyConfig(
         sendKeyCode: UInt32(kVK_ANSI_C),
-        sendModifiers: UInt32(optionKey)
+        pauseKeyCode: UInt32(kVK_ANSI_S),
+        sendModifiers: UInt32(optionKey),
+        pauseModifiers: UInt32(optionKey | cmdKey)
     )
 
     static var configURL: URL {
@@ -52,6 +56,7 @@ struct HotKeyConfig: Codable {
     }
 
     var sendDescription: String { Self.describe(key: sendKeyCode, mods: sendModifiers) }
+    var pauseDescription: String { Self.describe(key: pauseKeyCode, mods: pauseModifiers) }
 
     private static func describe(key: UInt32, mods: UInt32) -> String {
         var s = ""

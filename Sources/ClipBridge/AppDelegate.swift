@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var hotKeyConfig = HotKeyConfig.load()
     private var statusText = "起動中…"
+    private var isPaused = false
 
     // MARK: - 起動
 
@@ -43,7 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyHotKeys() {
         hotKeys.apply(config: hotKeyConfig,
-                      onSend: { [weak self] in self?.sendClipboard() })
+                      onSend: { [weak self] in self?.sendClipboard() },
+                      onPause: { [weak self] in self?.togglePause() })
 
         if !hotKeys.failures.isEmpty {
             let list = hotKeys.failures.joined(separator: ", ")
@@ -52,8 +54,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
+    /// 通信の一時停止/再開を切り替え
+    private func togglePause() {
+        isPaused.toggle()
+        updateStatusIcon()
+        rebuildMenu()
+        if isPaused {
+            HUD.shared.show("通信を一時停止しました")
+        } else {
+            HUD.shared.show("通信を再開しました")
+        }
+    }
+
+    private func updateStatusIcon() {
+        guard let button = statusItem.button else { return }
+        let iconName = isPaused ? "doc.on.clipboard.fill" : "doc.on.clipboard"
+        button.image = NSImage(systemSymbolName: iconName,
+                               accessibilityDescription: "ClipBridge")
+        button.image?.isTemplate = true
+    }
+
     /// ⌥C — 自分のクリップボードを接続中の相手へ送る
     private func sendClipboard() {
+        if isPaused {
+            HUD.shared.show("通信は一時停止中です（\(hotKeyConfig.pauseDescription) で再開）")
+            return
+        }
         guard let content = ClipboardService.read() else {
             HUD.shared.show("クリップボードが空です")
             return
@@ -127,7 +153,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let sendItem = NSMenuItem(title: "クリップボードを送信（\(hotKeyConfig.sendDescription)）", action: #selector(menuSend), keyEquivalent: "")
         sendItem.target = self
+        sendItem.isEnabled = !isPaused
         menu.addItem(sendItem)
+
+        let pauseTitle = isPaused ? "通信を再開（\(hotKeyConfig.pauseDescription)）" : "通信を一時停止（\(hotKeyConfig.pauseDescription)）"
+        let pauseItem = NSMenuItem(title: pauseTitle, action: #selector(menuTogglePause), keyEquivalent: "")
+        pauseItem.target = self
+        if isPaused { pauseItem.state = .on }
+        menu.addItem(pauseItem)
 
         let openInbox = NSMenuItem(title: "受信ファイルのフォルダを開く", action: #selector(menuOpenInbox), keyEquivalent: "")
         openInbox.target = self
@@ -184,6 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - メニュー操作
 
     @objc private func menuSend() { sendClipboard() }
+    @objc private func menuTogglePause() { togglePause() }
 
     @objc private func menuOpenInbox() {
         let dir = Const.inboxDirectory
@@ -242,6 +276,8 @@ extension AppDelegate: PeerManagerDelegate {
     }
 
     func peerManager(_ m: PeerManager, didReceive content: ClipContent, from name: String) {
+        // 一時停止中は無視
+        if isPaused { return }
         // 受信したらすぐにクリップボードに反映
         let note = ClipboardService.write(content)
         HUD.shared.show("\(name) から受信: \(note)")

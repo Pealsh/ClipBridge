@@ -11,7 +11,7 @@ final class HotKeyManager {
 
     typealias Handler = () -> Void
 
-    enum Slot: UInt32 { case send = 1 }
+    enum Slot: UInt32 { case send = 1, pause = 2 }
 
     private static let signature: OSType = 0x43_42_52_47   // 'CBRG'
 
@@ -31,8 +31,8 @@ final class HotKeyManager {
 
     // MARK: - 登録
 
-    /// 設定に従って送信ホットキーを登録し直す
-    func apply(config: HotKeyConfig, onSend: @escaping Handler) {
+    /// 設定に従ってホットキーを登録し直す
+    func apply(config: HotKeyConfig, onSend: @escaping Handler, onPause: @escaping Handler) {
         unregisterAll()
         failures.removeAll()
 
@@ -41,6 +41,12 @@ final class HotKeyManager {
                  modifiers: config.sendModifiers,
                  label: config.sendDescription,
                  handler: onSend)
+
+        register(slot: .pause,
+                 keyCode: config.pauseKeyCode,
+                 modifiers: config.pauseModifiers,
+                 label: config.pauseDescription,
+                 handler: onPause)
     }
 
     private func register(slot: Slot, keyCode: UInt32, modifiers: UInt32,
