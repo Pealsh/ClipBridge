@@ -10,7 +10,7 @@ protocol PeerConnectionDelegate: AnyObject {
                         completion: @escaping (Bool) -> Void)
     func peerConnectionDidBecomeReady(_ c: PeerConnection)
     func peerConnection(_ c: PeerConnection, didReceive content: ClipContent)
-    func peerConnection(_ c: PeerConnection, didReceiveNotify message: String)
+    func peerConnection(_ c: PeerConnection, didReceiveNotify message: String, image: Data?)
     /// 相手から pull 要求。今のローカルクリップボードを返す（nil なら空）。
     func peerConnectionClipboardForPull(_ c: PeerConnection) -> ClipContent?
     func peerConnection(_ c: PeerConnection, didCloseWith error: Error?)
@@ -141,11 +141,17 @@ final class PeerConnection {
     }
 
     /// 相手にメッセージを送る（画面中央に表示される）
-    func sendNotify(_ message: String) {
+    func sendNotify(_ message: String, image: Data? = nil) {
         guard state == .ready else { return }
         var h = MessageHeader(type: "notify")
         h.message = message
-        try? sendEncrypted(Envelope(header: h, body: Data()))
+        if let image = image {
+            h.hasImage = true
+            h.imageFormat = "png"
+            try? sendEncrypted(Envelope(header: h, body: image))
+        } else {
+            try? sendEncrypted(Envelope(header: h, body: Data()))
+        }
     }
 
     private func sendEncrypted(_ env: Envelope) throws {
@@ -331,11 +337,11 @@ final class PeerConnection {
 
         case "notify":
             guard state == .ready else { throw ProtocolError.untrustedPeer }
-            if let message = env.header.message {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.delegate?.peerConnection(self, didReceiveNotify: message)
-                }
+            let message = env.header.message ?? ""
+            let imageData: Data? = (env.header.hasImage == true && !env.body.isEmpty) ? env.body : nil
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.delegate?.peerConnection(self, didReceiveNotify: message, image: imageData)
             }
 
         case "ping":
