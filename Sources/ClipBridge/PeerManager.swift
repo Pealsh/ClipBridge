@@ -4,6 +4,7 @@ import Network
 protocol PeerManagerDelegate: AnyObject {
     func peerManagerDidChangePeers(_ m: PeerManager)
     func peerManager(_ m: PeerManager, didReceive content: ClipContent, from name: String)
+    func peerManager(_ m: PeerManager, didReceiveNotify message: String, from name: String)
     func peerManager(_ m: PeerManager,
                      requiresPairing sas: String,
                      peerName: String,
@@ -242,6 +243,14 @@ final class PeerManager {
         return targets.count
     }
 
+    /// 接続中の全端末にメッセージを送る
+    @discardableResult
+    func broadcastNotify(_ message: String) -> Int {
+        let targets = queue.sync { connections.values.filter { $0.state == .ready } }
+        for c in targets { c.sendNotify(message) }
+        return targets.count
+    }
+
     func disconnect(deviceID: String) {
         queue.async { self.connections[deviceID]?.close() }
     }
@@ -273,6 +282,10 @@ extension PeerManager: PeerConnectionDelegate {
 
     func peerConnection(_ c: PeerConnection, didReceive content: ClipContent) {
         delegate?.peerManager(self, didReceive: content, from: c.peerName)
+    }
+
+    func peerConnection(_ c: PeerConnection, didReceiveNotify message: String) {
+        delegate?.peerManager(self, didReceiveNotify: message, from: c.peerName)
     }
 
     func peerConnectionClipboardForPull(_ c: PeerConnection) -> ClipContent? {

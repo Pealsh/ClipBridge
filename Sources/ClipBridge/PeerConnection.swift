@@ -10,6 +10,7 @@ protocol PeerConnectionDelegate: AnyObject {
                         completion: @escaping (Bool) -> Void)
     func peerConnectionDidBecomeReady(_ c: PeerConnection)
     func peerConnection(_ c: PeerConnection, didReceive content: ClipContent)
+    func peerConnection(_ c: PeerConnection, didReceiveNotify message: String)
     /// 相手から pull 要求。今のローカルクリップボードを返す（nil なら空）。
     func peerConnectionClipboardForPull(_ c: PeerConnection) -> ClipContent?
     func peerConnection(_ c: PeerConnection, didCloseWith error: Error?)
@@ -137,6 +138,14 @@ final class PeerConnection {
     func requestPull() {
         guard state == .ready else { return }
         try? sendEncrypted(Envelope(header: MessageHeader(type: "pull"), body: Data()))
+    }
+
+    /// 相手にメッセージを送る（画面中央に表示される）
+    func sendNotify(_ message: String) {
+        guard state == .ready else { return }
+        var h = MessageHeader(type: "notify")
+        h.message = message
+        try? sendEncrypted(Envelope(header: h, body: Data()))
     }
 
     private func sendEncrypted(_ env: Envelope) throws {
@@ -318,6 +327,15 @@ final class PeerConnection {
             if env.header.ok == false, let note = env.header.note {
                 Log.info("相手からの通知:", note)
                 Notifier.show(title: "ClipBridge", body: note)
+            }
+
+        case "notify":
+            guard state == .ready else { throw ProtocolError.untrustedPeer }
+            if let message = env.header.message {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.delegate?.peerConnection(self, didReceiveNotify: message)
+                }
             }
 
         case "ping":

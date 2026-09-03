@@ -69,7 +69,7 @@ struct FileEntry: Codable {
 }
 
 struct MessageHeader: Codable {
-    /// "clip" | "pull" | "pairack" | "ack" | "ping"
+    /// "clip" | "pull" | "pairack" | "ack" | "ping" | "notify"
     let type: String
     var kind: String?        = nil   // clip のとき: "text" | "image" | "files"
     var text: String?        = nil   // kind == "text"
@@ -77,6 +77,7 @@ struct MessageHeader: Codable {
     var files: [FileEntry]?  = nil   // kind == "files"
     var ok: Bool?            = nil   // ack / pairack
     var note: String?        = nil   // ack / エラー説明
+    var message: String?     = nil   // notify のとき: 表示するメッセージ
 }
 
 struct Envelope {

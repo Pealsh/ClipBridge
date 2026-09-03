@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import ApplicationServices
 import CoreGraphics
+import ObjectiveC
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -45,7 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func applyHotKeys() {
         hotKeys.apply(config: hotKeyConfig,
                       onSend: { [weak self] in self?.sendClipboard() },
-                      onPause: { [weak self] in self?.togglePause() })
+                      onPause: { [weak self] in self?.togglePause() },
+                      onMessage: { [weak self] in self?.showMessageDialog() })
 
         if !hotKeys.failures.isEmpty {
             let list = hotKeys.failures.joined(separator: ", ")
@@ -74,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.image?.isTemplate = true
     }
 
-    /// ⌥C — 自分のクリップボードを接続中の相手へ送る
+    /// ⌥⌘C — 自分のクリップボードを接続中の相手へ送る
     private func sendClipboard() {
         if isPaused {
             HUD.shared.show("通信は一時停止中です（\(hotKeyConfig.pauseDescription) で再開）")
@@ -93,6 +95,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HUD.shared.show("接続中の端末がありません")
         } else {
             HUD.shared.show("\(n) 台に送信しました")
+        }
+    }
+
+    /// ⌥⌘S — メッセージ入力ダイアログを表示して送信
+    private func showMessageDialog() {
+        let peers = manager.readyPeers
+        if peers.isEmpty {
+            HUD.shared.show("接続中の端末がありません")
+            return
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: 100),
+                            styleMask: [.titled, .closable],
+                            backing: .buffered,
+                            defer: false)
+        panel.title = "メッセージを送信"
+        panel.isFloatingPanel = true
+        panel.becomesKeyOnlyIfNeeded = false
+
+        let contentView = NSView(frame: panel.contentLayoutRect)
+
+        let field = NSTextField(frame: NSRect(x: 20, y: 50, width: 280, height: 24))
+        field.placeholderString = "メッセージを入力…"
+        field.target = self
+        contentView.addSubview(field)
+
+        let sendButton = NSButton(frame: NSRect(x: 310, y: 48, width: 70, height: 28))
+        sendButton.title = "送信"
+        sendButton.bezelStyle = .rounded
+        sendButton.keyEquivalent = "\r"
+        contentView.addSubview(sendButton)
+
+        let infoLabel = NSTextField(labelWithString: "\(peers.count) 台に送信されます")
+        infoLabel.frame = NSRect(x: 20, y: 15, width: 360, height: 20)
+        infoLabel.textColor = .secondaryLabelColor
+        infoLabel.font = .systemFont(ofSize: 11)
+        contentView.addSubview(infoLabel)
+
+        panel.contentView = contentView
+
+        sendButton.target = self
+        sendButton.action = #selector(messageDialogSend(_:))
+        panel.representedFilename = "field"  // ダミー識別子
+
+        // フィールドをパネルに紐づけ
+        objc_setAssociatedObject(panel, "textField", field, .OBJC_ASSOCIATION_RETAIN)
+
+        if let screen = NSScreen.main {
+            let origin = NSPoint(x: screen.frame.midX - 200, y: screen.frame.midY)
+            panel.setFrameOrigin(origin)
+        }
+
+        panel.makeKeyAndOrderFront(nil)
+        field.becomeFirstResponder()
+    }
+
+    @objc private func messageDialogSend(_ sender: NSButton) {
+        guard let panel = sender.window as? NSPanel,
+              let field = objc_getAssociatedObject(panel, "textField") as? NSTextField
+        else { return }
+
+        let message = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        panel.close()
+
+        guard !message.isEmpty else { return }
+
+        let n = manager.broadcastNotify(message)
+        if n > 0 {
+            HUD.shared.show("\(n) 台にメッセージを送信しました")
         }
     }
 
@@ -156,6 +229,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sendItem.isEnabled = !isPaused
         menu.addItem(sendItem)
 
+        let messageItem = NSMenuItem(title: "メッセージを送信（\(hotKeyConfig.messageDescription)）", action: #selector(menuMessage), keyEquivalent: "")
+        messageItem.target = self
+        menu.addItem(messageItem)
+
         let pauseTitle = isPaused ? "通信を再開（\(hotKeyConfig.pauseDescription)）" : "通信を一時停止（\(hotKeyConfig.pauseDescription)）"
         let pauseItem = NSMenuItem(title: pauseTitle, action: #selector(menuTogglePause), keyEquivalent: "")
         pauseItem.target = self
@@ -217,6 +294,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - メニュー操作
 
     @objc private func menuSend() { sendClipboard() }
+    @objc private func menuMessage() { showMessageDialog() }
     @objc private func menuTogglePause() { togglePause() }
 
     @objc private func menuOpenInbox() {
@@ -281,6 +359,11 @@ extension AppDelegate: PeerManagerDelegate {
         // 受信したらすぐにクリップボードに反映
         let note = ClipboardService.write(content)
         HUD.shared.show("\(name) から受信: \(note)")
+    }
+
+    func peerManager(_ m: PeerManager, didReceiveNotify message: String, from name: String) {
+        // メッセージは一時停止中でも強制的に表示
+        HUD.shared.showCenter(message, from: name)
     }
 
     func peerManager(_ m: PeerManager,
