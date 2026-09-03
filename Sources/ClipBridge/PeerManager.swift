@@ -4,7 +4,7 @@ import Network
 protocol PeerManagerDelegate: AnyObject {
     func peerManagerDidChangePeers(_ m: PeerManager)
     func peerManager(_ m: PeerManager, didReceive content: ClipContent, from name: String)
-    func peerManager(_ m: PeerManager, didReceiveNotify message: String, image: Data?, from name: String)
+    func peerManager(_ m: PeerManager, didReceiveNotify message: String, attachment: NotifyAttachment, from name: String)
     func peerManager(_ m: PeerManager,
                      requiresPairing sas: String,
                      peerName: String,
@@ -245,9 +245,9 @@ final class PeerManager {
 
     /// 接続中の全端末にメッセージを送る
     @discardableResult
-    func broadcastNotify(_ message: String, image: Data? = nil) -> Int {
+    func broadcastNotify(_ message: String, image: Data? = nil, files: [(name: String, data: Data)] = []) -> Int {
         let targets = queue.sync { connections.values.filter { $0.state == .ready } }
-        for c in targets { c.sendNotify(message, image: image) }
+        for c in targets { c.sendNotify(message, image: image, files: files) }
         return targets.count
     }
 
@@ -284,8 +284,8 @@ extension PeerManager: PeerConnectionDelegate {
         delegate?.peerManager(self, didReceive: content, from: c.peerName)
     }
 
-    func peerConnection(_ c: PeerConnection, didReceiveNotify message: String, image: Data?) {
-        delegate?.peerManager(self, didReceiveNotify: message, image: image, from: c.peerName)
+    func peerConnection(_ c: PeerConnection, didReceiveNotify message: String, attachment: NotifyAttachment) {
+        delegate?.peerManager(self, didReceiveNotify: message, attachment: attachment, from: c.peerName)
     }
 
     func peerConnectionClipboardForPull(_ c: PeerConnection) -> ClipContent? {

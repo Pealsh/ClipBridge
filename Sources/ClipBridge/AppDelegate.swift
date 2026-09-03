@@ -99,8 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// 選択中の画像データ（メッセージダイアログ用）
+    /// 選択中の添付データ（メッセージダイアログ用）
     private var selectedImageData: Data?
+    private var selectedFiles: [(name: String, data: Data)] = []
 
     /// ⌥⌘S — メッセージ入力ダイアログを表示して送信（リキッドグラスUI）
     private func showMessageDialog() {
@@ -111,112 +112,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         selectedImageData = nil
+        selectedFiles = []
         NSApp.activate(ignoringOtherApps: true)
 
-        let panelWidth: CGFloat = 420
-        let panelHeight: CGFloat = 160
+        let panelWidth: CGFloat = 400
+        let panelHeight: CGFloat = 180
 
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
-                            styleMask: [.borderless, .nonactivatingPanel],
+                            styleMask: [.titled, .closable],
                             backing: .buffered,
                             defer: false)
+        panel.title = "メッセージを送信"
+        panel.titlebarAppearsTransparent = true
+        panel.isMovableByWindowBackground = true
         panel.level = .floating
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
         panel.isFloatingPanel = true
         panel.becomesKeyOnlyIfNeeded = false
 
-        // リキッドグラス背景
-        let blur = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
-        blur.material = .hudWindow
-        blur.blendingMode = .behindWindow
-        blur.state = .active
-        blur.wantsLayer = true
-        blur.layer?.cornerRadius = 16
-        blur.layer?.masksToBounds = true
-        blur.autoresizingMask = [.width, .height]
+        // 背景ビュー
+        let bgView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
+        bgView.material = .hudWindow
+        bgView.blendingMode = .behindWindow
+        bgView.state = .active
+        bgView.autoresizingMask = [.width, .height]
 
-        // タイトル
-        let titleLabel = NSTextField(labelWithString: "メッセージを送信")
-        titleLabel.frame = NSRect(x: 20, y: panelHeight - 35, width: panelWidth - 40, height: 20)
-        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-        titleLabel.textColor = .labelColor
-        blur.addSubview(titleLabel)
+        // メッセージ入力フィールド
+        let fieldBg = NSView(frame: NSRect(x: 20, y: 95, width: panelWidth - 40, height: 36))
+        fieldBg.wantsLayer = true
+        fieldBg.layer?.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.5).cgColor
+        fieldBg.layer?.cornerRadius = 10
+        fieldBg.layer?.borderWidth = 1
+        fieldBg.layer?.borderColor = NSColor.separatorColor.cgColor
+        bgView.addSubview(fieldBg)
 
-        // テキストフィールド（角丸、半透明背景）
-        let fieldContainer = NSView(frame: NSRect(x: 20, y: 65, width: panelWidth - 130, height: 32))
-        fieldContainer.wantsLayer = true
-        fieldContainer.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
-        fieldContainer.layer?.cornerRadius = 8
-        blur.addSubview(fieldContainer)
-
-        let field = NSTextField(frame: NSRect(x: 8, y: 4, width: fieldContainer.bounds.width - 16, height: 24))
+        let field = NSTextField(frame: NSRect(x: 12, y: 6, width: fieldBg.bounds.width - 24, height: 24))
         field.placeholderString = "メッセージを入力…"
         field.isBordered = false
         field.backgroundColor = .clear
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: 13)
-        fieldContainer.addSubview(field)
+        field.font = .systemFont(ofSize: 14)
+        fieldBg.addSubview(field)
 
-        // 画像挿入ボタン
-        let imageButton = NSButton(frame: NSRect(x: panelWidth - 100, y: 67, width: 28, height: 28))
-        imageButton.image = NSImage(systemSymbolName: "photo.badge.plus", accessibilityDescription: "画像を追加")
-        imageButton.bezelStyle = .regularSquare
-        imageButton.isBordered = false
-        imageButton.wantsLayer = true
-        imageButton.layer?.cornerRadius = 6
-        imageButton.target = self
-        imageButton.action = #selector(messageDialogSelectImage(_:))
-        blur.addSubview(imageButton)
+        // 添付ボタン行
+        let buttonY: CGFloat = 55
 
-        // 送信ボタン
-        let sendButton = NSButton(frame: NSRect(x: panelWidth - 65, y: 65, width: 50, height: 32))
-        sendButton.title = "送信"
-        sendButton.bezelStyle = .rounded
-        sendButton.keyEquivalent = "\r"
-        sendButton.wantsLayer = true
-        blur.addSubview(sendButton)
+        // 画像添付ボタン
+        let imageBtn = NSButton(frame: NSRect(x: 20, y: buttonY, width: 100, height: 28))
+        imageBtn.title = "画像"
+        imageBtn.image = NSImage(systemSymbolName: "photo", accessibilityDescription: "画像")
+        imageBtn.imagePosition = .imageLeading
+        imageBtn.bezelStyle = .rounded
+        imageBtn.font = .systemFont(ofSize: 12)
+        imageBtn.target = self
+        imageBtn.action = #selector(messageDialogSelectImage(_:))
+        bgView.addSubview(imageBtn)
 
-        // 画像プレビュー（非表示、画像選択時に表示）
-        let imagePreview = NSImageView(frame: NSRect(x: 20, y: 35, width: 60, height: 45))
-        imagePreview.imageScaling = .scaleProportionallyUpOrDown
-        imagePreview.wantsLayer = true
-        imagePreview.layer?.cornerRadius = 6
-        imagePreview.layer?.masksToBounds = true
-        imagePreview.layer?.borderWidth = 1
-        imagePreview.layer?.borderColor = NSColor.white.withAlphaComponent(0.2).cgColor
-        imagePreview.isHidden = true
-        imagePreview.tag = 100
-        blur.addSubview(imagePreview)
+        // ファイル添付ボタン
+        let fileBtn = NSButton(frame: NSRect(x: 130, y: buttonY, width: 100, height: 28))
+        fileBtn.title = "ファイル"
+        fileBtn.image = NSImage(systemSymbolName: "doc", accessibilityDescription: "ファイル")
+        fileBtn.imagePosition = .imageLeading
+        fileBtn.bezelStyle = .rounded
+        fileBtn.font = .systemFont(ofSize: 12)
+        fileBtn.target = self
+        fileBtn.action = #selector(messageDialogSelectFile(_:))
+        bgView.addSubview(fileBtn)
 
-        // 画像削除ボタン
-        let removeImageButton = NSButton(frame: NSRect(x: 70, y: 55, width: 20, height: 20))
-        removeImageButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "画像を削除")
-        removeImageButton.bezelStyle = .regularSquare
-        removeImageButton.isBordered = false
-        removeImageButton.isHidden = true
-        removeImageButton.tag = 101
-        removeImageButton.target = self
-        removeImageButton.action = #selector(messageDialogRemoveImage(_:))
-        blur.addSubview(removeImageButton)
+        // 添付プレビューラベル
+        let attachLabel = NSTextField(labelWithString: "")
+        attachLabel.frame = NSRect(x: 240, y: buttonY + 4, width: panelWidth - 260, height: 20)
+        attachLabel.font = .systemFont(ofSize: 11)
+        attachLabel.textColor = .secondaryLabelColor
+        attachLabel.lineBreakMode = .byTruncatingTail
+        attachLabel.tag = 200
+        bgView.addSubview(attachLabel)
 
         // 送信先情報
         let infoLabel = NSTextField(labelWithString: "\(peers.count) 台に送信されます")
-        infoLabel.frame = NSRect(x: 20, y: 12, width: panelWidth - 40, height: 16)
+        infoLabel.frame = NSRect(x: 20, y: 20, width: 200, height: 16)
         infoLabel.textColor = .secondaryLabelColor
         infoLabel.font = .systemFont(ofSize: 11)
-        blur.addSubview(infoLabel)
+        bgView.addSubview(infoLabel)
 
-        panel.contentView = blur
+        // 送信ボタン
+        let sendBtn = NSButton(frame: NSRect(x: panelWidth - 90, y: 15, width: 70, height: 28))
+        sendBtn.title = "送信"
+        sendBtn.bezelStyle = .rounded
+        sendBtn.keyEquivalent = "\r"
+        sendBtn.target = self
+        sendBtn.action = #selector(messageDialogSend(_:))
+        bgView.addSubview(sendBtn)
 
-        sendButton.target = self
-        sendButton.action = #selector(messageDialogSend(_:))
+        panel.contentView = bgView
 
-        // フィールドとプレビューをパネルに紐づけ
+        // フィールドとラベルをパネルに紐づけ
         objc_setAssociatedObject(panel, "textField", field, .OBJC_ASSOCIATION_RETAIN)
-        objc_setAssociatedObject(panel, "imagePreview", imagePreview, .OBJC_ASSOCIATION_RETAIN)
-        objc_setAssociatedObject(panel, "removeButton", removeImageButton, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(panel, "attachLabel", attachLabel, .OBJC_ASSOCIATION_RETAIN)
 
         if let screen = NSScreen.main {
             let origin = NSPoint(x: screen.frame.midX - panelWidth / 2, y: screen.frame.midY)
@@ -227,52 +218,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.makeFirstResponder(field)
     }
 
+    private func updateAttachLabel(in panel: NSPanel) {
+        guard let label = objc_getAssociatedObject(panel, "attachLabel") as? NSTextField else { return }
+        var parts: [String] = []
+        if selectedImageData != nil { parts.append("画像1枚") }
+        if !selectedFiles.isEmpty { parts.append("ファイル\(selectedFiles.count)個") }
+        label.stringValue = parts.isEmpty ? "" : parts.joined(separator: " + ")
+    }
+
     @objc private func messageDialogSelectImage(_ sender: NSButton) {
         guard let panel = sender.window as? NSPanel else { return }
 
         let openPanel = NSOpenPanel()
-        openPanel.allowedContentTypes = [.png, .jpeg, .gif, .webP, .heic]
+        openPanel.allowedContentTypes = [.png, .jpeg, .gif, .webP, .heic, .image]
         openPanel.allowsMultipleSelection = false
         openPanel.canChooseDirectories = false
         openPanel.message = "送信する画像を選択"
 
         openPanel.beginSheetModal(for: panel) { [weak self] response in
-            guard response == .OK, let url = openPanel.url else { return }
+            guard let self, response == .OK, let url = openPanel.url else { return }
             guard let imageData = try? Data(contentsOf: url),
                   let image = NSImage(data: imageData) else {
                 HUD.shared.show("画像を読み込めませんでした")
                 return
             }
 
-            // 画像サイズを制限（2MB以下にリサイズ）
+            // 画像サイズを制限（5MB以下にリサイズ）
             var finalData = imageData
-            if imageData.count > 2 * 1024 * 1024 {
-                if let resized = self?.resizeImage(image, maxBytes: 2 * 1024 * 1024) {
+            if imageData.count > 5 * 1024 * 1024 {
+                if let resized = self.resizeImage(image, maxBytes: 5 * 1024 * 1024) {
                     finalData = resized
                 }
             }
 
-            self?.selectedImageData = finalData
-
-            // プレビュー表示
-            if let preview = objc_getAssociatedObject(panel, "imagePreview") as? NSImageView,
-               let removeBtn = objc_getAssociatedObject(panel, "removeButton") as? NSButton {
-                preview.image = NSImage(data: finalData)
-                preview.isHidden = false
-                removeBtn.isHidden = false
-            }
+            self.selectedImageData = finalData
+            self.updateAttachLabel(in: panel)
         }
     }
 
-    @objc private func messageDialogRemoveImage(_ sender: NSButton) {
+    @objc private func messageDialogSelectFile(_ sender: NSButton) {
         guard let panel = sender.window as? NSPanel else { return }
-        selectedImageData = nil
 
-        if let preview = objc_getAssociatedObject(panel, "imagePreview") as? NSImageView,
-           let removeBtn = objc_getAssociatedObject(panel, "removeButton") as? NSButton {
-            preview.image = nil
-            preview.isHidden = true
-            removeBtn.isHidden = true
+        let openPanel = NSOpenPanel()
+        openPanel.allowsMultipleSelection = true
+        openPanel.canChooseDirectories = false
+        openPanel.message = "送信するファイルを選択"
+
+        openPanel.beginSheetModal(for: panel) { [weak self] response in
+            guard let self, response == .OK else { return }
+
+            var files: [(name: String, data: Data)] = []
+            var totalSize = 0
+
+            for url in openPanel.urls {
+                guard let data = try? Data(contentsOf: url) else { continue }
+                totalSize += data.count
+                if totalSize > 50 * 1024 * 1024 {
+                    HUD.shared.show("合計サイズが50MBを超えています")
+                    break
+                }
+                files.append((name: url.lastPathComponent, data: data))
+            }
+
+            self.selectedFiles = files
+            self.updateAttachLabel(in: panel)
         }
     }
 
@@ -309,19 +318,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let message = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let imageData = selectedImageData
+        let files = selectedFiles
         panel.close()
         selectedImageData = nil
+        selectedFiles = []
 
-        // メッセージか画像のどちらかがあれば送信
-        guard !message.isEmpty || imageData != nil else { return }
+        // メッセージ、画像、ファイルのいずれかがあれば送信
+        guard !message.isEmpty || imageData != nil || !files.isEmpty else { return }
 
-        let n = manager.broadcastNotify(message, image: imageData)
+        let n = manager.broadcastNotify(message, image: imageData, files: files)
         if n > 0 {
-            if imageData != nil {
-                HUD.shared.show("\(n) 台にメッセージと画像を送信しました")
-            } else {
-                HUD.shared.show("\(n) 台にメッセージを送信しました")
-            }
+            var what: [String] = []
+            if !message.isEmpty { what.append("メッセージ") }
+            if imageData != nil { what.append("画像") }
+            if !files.isEmpty { what.append("ファイル\(files.count)個") }
+            HUD.shared.show("\(n) 台に\(what.joined(separator: "と"))を送信しました")
         }
     }
 
@@ -517,9 +528,9 @@ extension AppDelegate: PeerManagerDelegate {
         HUD.shared.show("\(name) から受信: \(note)")
     }
 
-    func peerManager(_ m: PeerManager, didReceiveNotify message: String, image: Data?, from name: String) {
+    func peerManager(_ m: PeerManager, didReceiveNotify message: String, attachment: NotifyAttachment, from name: String) {
         // メッセージは一時停止中でも強制的に表示（読み上げ付き）
-        HUD.shared.showCenter(message, image: image, from: name)
+        HUD.shared.showCenter(message, attachment: attachment, from: name)
     }
 
     func peerManager(_ m: PeerManager,

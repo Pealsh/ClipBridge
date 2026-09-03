@@ -2,6 +2,12 @@ import Foundation
 import Network
 import CryptoKit
 
+/// 通知メッセージの添付データ
+struct NotifyAttachment {
+    var image: Data?
+    var files: [(name: String, data: Data)]
+}
+
 protocol PeerConnectionDelegate: AnyObject {
     /// 未ペアリングの相手。SAS を表示してユーザーに照合してもらう。
     func peerConnection(_ c: PeerConnection,
@@ -10,7 +16,7 @@ protocol PeerConnectionDelegate: AnyObject {
                         completion: @escaping (Bool) -> Void)
     func peerConnectionDidBecomeReady(_ c: PeerConnection)
     func peerConnection(_ c: PeerConnection, didReceive content: ClipContent)
-    func peerConnection(_ c: PeerConnection, didReceiveNotify message: String, image: Data?)
+    func peerConnection(_ c: PeerConnection, didReceiveNotify message: String, attachment: NotifyAttachment)
     /// 相手から pull 要求。今のローカルクリップボードを返す（nil なら空）。
     func peerConnectionClipboardForPull(_ c: PeerConnection) -> ClipContent?
     func peerConnection(_ c: PeerConnection, didCloseWith error: Error?)
@@ -141,17 +147,30 @@ final class PeerConnection {
     }
 
     /// 相手にメッセージを送る（画面中央に表示される）
-    func sendNotify(_ message: String, image: Data? = nil) {
+    func sendNotify(_ message: String, image: Data? = nil, files: [(name: String, data: Data)] = []) {
         guard state == .ready else { return }
         var h = MessageHeader(type: "notify")
         h.message = message
+
+        var body = Data()
+
+        // 画像を先頭に配置
         if let image = image {
             h.hasImage = true
             h.imageFormat = "png"
-            try? sendEncrypted(Envelope(header: h, body: image))
-        } else {
-            try? sendEncrypted(Envelope(header: h, body: Data()))
+            body.append(image)
         }
+
+        // ファイルを追加
+        if !files.isEmpty {
+            h.hasFiles = true
+            h.files = files.map { FileEntry(name: $0.name, size: $0.data.count) }
+            for file in files {
+                body.append(file.data)
+            }
+        }
+
+        try? sendEncrypted(Envelope(header: h, body: body))
     }
 
     private func sendEncrypted(_ env: Envelope) throws {
@@ -338,10 +357,40 @@ final class PeerConnection {
         case "notify":
             guard state == .ready else { throw ProtocolError.untrustedPeer }
             let message = env.header.message ?? ""
-            let imageData: Data? = (env.header.hasImage == true && !env.body.isEmpty) ? env.body : nil
+
+            var attachment = NotifyAttachment(image: nil, files: [])
+            var offset = 0
+
+            // 画像を先に読む（画像サイズはヘッダーに含まれていないので、ファイルがあればファイルのオフセットから計算）
+            if env.header.hasImage == true {
+                if let fileEntries = env.header.files, !fileEntries.isEmpty {
+                    // ファイルのサイズ合計を計算して、それより前が画像
+                    let filesSize = fileEntries.reduce(0) { $0 + $1.size }
+                    let imageSize = env.body.count - filesSize
+                    if imageSize > 0 {
+                        attachment.image = env.body.subdata(in: 0 ..< imageSize)
+                        offset = imageSize
+                    }
+                } else {
+                    // ファイルがなければbody全体が画像
+                    attachment.image = env.body
+                }
+            }
+
+            // ファイルを読む
+            if env.header.hasFiles == true, let fileEntries = env.header.files {
+                for entry in fileEntries {
+                    guard offset + entry.size <= env.body.count else { break }
+                    let chunk = env.body.subdata(in: offset ..< (offset + entry.size))
+                    let safeName = sanitizeFileName(entry.name)
+                    attachment.files.append((name: safeName, data: chunk))
+                    offset += entry.size
+                }
+            }
+
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.delegate?.peerConnection(self, didReceiveNotify: message, image: imageData)
+                self.delegate?.peerConnection(self, didReceiveNotify: message, attachment: attachment)
             }
 
         case "ping":
@@ -350,5 +399,14 @@ final class PeerConnection {
         default:
             break
         }
+    }
+
+    /// ファイル名をサニタイズ（パス脱出を防ぐ）
+    private func sanitizeFileName(_ name: String) -> String {
+        let base = (name as NSString).lastPathComponent
+        let cleaned = base.replacingOccurrences(of: "/", with: "_")
+                          .replacingOccurrences(of: "\0", with: "_")
+        if cleaned.isEmpty || cleaned == "." || cleaned == ".." { return "clipbridge-file" }
+        return String(cleaned.prefix(200))
     }
 }

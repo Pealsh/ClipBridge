@@ -74,11 +74,12 @@ struct MessageHeader: Codable {
     var kind: String?        = nil   // clip のとき: "text" | "image" | "files"
     var text: String?        = nil   // kind == "text"
     var imageFormat: String? = nil   // kind == "image" -> "png" / notify で画像付きの場合も
-    var files: [FileEntry]?  = nil   // kind == "files"
+    var files: [FileEntry]?  = nil   // kind == "files" / notify でファイル付きの場合も
     var ok: Bool?            = nil   // ack / pairack
     var note: String?        = nil   // ack / エラー説明
     var message: String?     = nil   // notify のとき: 表示するメッセージ
     var hasImage: Bool?      = nil   // notify のとき: 画像付きかどうか
+    var hasFiles: Bool?      = nil   // notify のとき: ファイル付きかどうか
 }
 
 struct Envelope {
