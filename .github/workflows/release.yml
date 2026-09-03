@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Build .app bundle
+        run: make app
+
+      - name: Create zip
+        run: make zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClipBridge
+          path: dist/ClipBridge.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ClipBridge.zip
+          body: |
+            ## インストール
+
+            1. `ClipBridge.zip` をダウンロードして展開
+            2. `ClipBridge.app` を `/Applications` へ
+            3. **初回だけ** 右クリック →「開く」→「開く」
+               （未署名アプリのため、ダブルクリックでは起動できません）
+            4. 「ローカルネットワーク上のデバイスの検出」を **許可**
+
+            2 台で起動すると自動で見つかり、同じ 6 桁の番号が出ます。
+            番号が一致していれば両方で承認してください。
+
+            使い方: **⌥V** で送信 / **⌥C** で受信 → **⌘V** で貼り付け

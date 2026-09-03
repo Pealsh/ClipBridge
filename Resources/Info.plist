@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>ClipBridge</string>
+	<key>CFBundleDisplayName</key>
+	<string>ClipBridge</string>
+	<key>CFBundleExecutable</key>
+	<string>ClipBridge</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.example.clipbridge</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+
+	<!-- メニューバー常駐アプリ: Dock にアイコンを出さない -->
+	<key>LSUIElement</key>
+	<true/>
+
+	<!-- ローカルネットワーク権限 (macOS 15 Sequoia 以降で必須) -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>同じWi-Fi上のMacとクリップボードを共有するために、ローカルネットワーク上の端末を検出します。</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_clipbridge._tcp</string>
+	</array>
+
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+</dict>
+</plist>
