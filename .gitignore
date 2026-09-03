@@ -5,3 +5,6 @@ dist/
 *.xcworkspace
 .swiftpm/
 Package.resolved
+*.jpg
+*.png
+*.jpeg
