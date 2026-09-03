@@ -1,19 +1,28 @@
 import AppKit
 import UniformTypeIdentifiers
 
+/// 各通知パネルのデータを保持
+private class NotificationData {
+    let panel: NSPanel
+    var message: String = ""
+    var image: Data?
+    var files: [(name: String, data: Data)] = []
+
+    init(panel: NSPanel) {
+        self.panel = panel
+    }
+}
+
 /// 画面上部のトーストと、画面中央のメッセージ通知を表示
 final class HUD {
 
     static let shared = HUD()
     private var window: NSPanel?
     private var hideWork: DispatchWorkItem?
-    private var centerWindow: NSPanel?
-    private let speechSynthesizer = NSSpeechSynthesizer()
 
-    // 現在表示中のコンテンツ（コピー/保存用）
-    private var currentMessage: String = ""
-    private var currentImage: Data?
-    private var currentFiles: [(name: String, data: Data)] = []
+    /// 複数の通知パネルを管理
+    private var notifications: [NotificationData] = []
+    private let speechSynthesizer = NSSpeechSynthesizer()
 
     private init() {
         if let japaneseVoice = NSSpeechSynthesizer.availableVoices.first(where: {
@@ -76,13 +85,6 @@ final class HUD {
     func showCenter(_ text: String, attachment: NotifyAttachment, from sender: String) {
         assert(Thread.isMainThread)
 
-        centerWindow?.orderOut(nil)
-        centerWindow = nil
-
-        currentMessage = text
-        currentImage = attachment.image
-        currentFiles = attachment.files
-
         let hasImage = attachment.image != nil
         let hasFiles = !attachment.files.isEmpty
         let hasText = !text.isEmpty
@@ -102,7 +104,13 @@ final class HUD {
         panel.hasShadow = true
         panel.ignoresMouseEvents = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        centerWindow = panel
+
+        // 通知データを作成して保持
+        let notifData = NotificationData(panel: panel)
+        notifData.message = text
+        notifData.image = attachment.image
+        notifData.files = attachment.files
+        notifications.append(notifData)
 
         // コンテンツサイズ計算
         let padding: CGFloat = 24
@@ -136,8 +144,12 @@ final class HUD {
         panelW = min(panelW, maxW)
         panelH = min(panelH, maxH)
 
-        // パネル配置
-        let origin = NSPoint(x: screen.midX - panelW / 2, y: screen.midY - panelH / 2)
+        // ランダムな位置に配置（画面内に収まるように）
+        let marginX: CGFloat = 40
+        let marginY: CGFloat = 40
+        let randomX = CGFloat.random(in: (screen.minX + marginX)...(screen.maxX - panelW - marginX))
+        let randomY = CGFloat.random(in: (screen.minY + marginY)...(screen.maxY - panelH - marginY))
+        let origin = NSPoint(x: randomX, y: randomY)
         panel.setFrame(NSRect(origin: origin, size: NSSize(width: panelW, height: panelH)), display: false)
 
         // 背景
@@ -167,7 +179,8 @@ final class HUD {
         closeBtn.isBordered = false
         closeBtn.contentTintColor = .secondaryLabelColor
         closeBtn.target = self
-        closeBtn.action = #selector(closeCenterPanel)
+        closeBtn.action = #selector(closeCenterPanelAction(_:))
+        closeBtn.tag = notifications.count - 1  // このパネルのインデックス
         header.addSubview(closeBtn)
 
         bg.addSubview(header)
@@ -189,6 +202,7 @@ final class HUD {
         }
 
         // 画像
+        var imageViewRef: NSImageView?
         if hasImage, let data = attachment.image, let img = NSImage(data: data) {
             let imgView = NSImageView(frame: NSRect(x: (panelW - imgW) / 2, y: y - imgH, width: imgW, height: imgH))
             imgView.image = img
@@ -197,6 +211,7 @@ final class HUD {
             imgView.layer?.cornerRadius = 12
             imgView.layer?.masksToBounds = true
             bg.addSubview(imgView)
+            imageViewRef = imgView
             y -= imgH + spacing
         }
 
@@ -248,14 +263,15 @@ final class HUD {
         // アクションバー（アイコンボタン）
         let actionY: CGFloat = 16
         let btnSize: CGFloat = 40
+        let panelIndex = notifications.count - 1
         var buttons: [(icon: String, action: Selector)] = []
 
-        if hasText { buttons.append(("doc.on.doc", #selector(copyMessage))) }
+        if hasText { buttons.append(("doc.on.doc", #selector(copyMessageAction(_:)))) }
         if hasImage {
-            buttons.append(("photo.on.rectangle", #selector(copyImage)))
-            buttons.append(("square.and.arrow.down", #selector(saveImage)))
+            buttons.append(("photo.on.rectangle", #selector(copyImageAction(_:))))
+            buttons.append(("square.and.arrow.down", #selector(saveImageAction(_:))))
         }
-        if hasFiles { buttons.append(("folder.badge.plus", #selector(saveFiles))) }
+        if hasFiles { buttons.append(("folder.badge.plus", #selector(saveFilesAction(_:)))) }
 
         let totalW = CGFloat(buttons.count) * btnSize + CGFloat(buttons.count - 1) * 12
         var btnX = (panelW - totalW) / 2
@@ -272,6 +288,7 @@ final class HUD {
             btn.contentTintColor = .labelColor
             btn.target = self
             btn.action = action
+            btn.tag = panelIndex
             bg.addSubview(btn)
             btnX += btnSize + 12
         }
@@ -291,6 +308,15 @@ final class HUD {
             panel.animator().setFrame(NSRect(origin: origin, size: NSSize(width: panelW, height: panelH)), display: true)
         }
 
+        // 画像の振動アニメーション（1秒間）
+        if let imgView = imageViewRef, let layer = imgView.layer {
+            let shake = CAKeyframeAnimation(keyPath: "transform.translation.x")
+            shake.values = [-4, 4, -3, 3, -2, 2, -1, 1, 0]
+            shake.duration = 0.1
+            shake.repeatCount = 10  // 0.1秒 × 10回 = 1秒
+            layer.add(shake, forKey: "shake")
+        }
+
         // 読み上げ
         if hasText {
             speechSynthesizer.stopSpeaking()
@@ -298,9 +324,12 @@ final class HUD {
         }
     }
 
-    @objc private func closeCenterPanel() {
+    @objc private func closeCenterPanelAction(_ sender: NSButton) {
         speechSynthesizer.stopSpeaking()
-        guard let panel = centerWindow else { return }
+        let index = sender.tag
+        guard index >= 0 && index < notifications.count else { return }
+        let notifData = notifications[index]
+        let panel = notifData.panel
         let frame = panel.frame
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.2
@@ -310,25 +339,33 @@ final class HUD {
                                              size: frame.size), display: true)
         }, completionHandler: {
             panel.orderOut(nil)
-            self.centerWindow = nil
         })
     }
 
-    @objc private func copyMessage() {
+    @objc private func copyMessageAction(_ sender: NSButton) {
+        let index = sender.tag
+        guard index >= 0 && index < notifications.count else { return }
+        let notifData = notifications[index]
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(currentMessage, forType: .string)
+        NSPasteboard.general.setString(notifData.message, forType: .string)
         show("コピーしました")
     }
 
-    @objc private func copyImage() {
-        guard let data = currentImage, let img = NSImage(data: data) else { return }
+    @objc private func copyImageAction(_ sender: NSButton) {
+        let index = sender.tag
+        guard index >= 0 && index < notifications.count else { return }
+        let notifData = notifications[index]
+        guard let data = notifData.image, let img = NSImage(data: data) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([img])
         show("画像をコピーしました")
     }
 
-    @objc private func saveImage() {
-        guard let data = currentImage else { return }
+    @objc private func saveImageAction(_ sender: NSButton) {
+        let index = sender.tag
+        guard index >= 0 && index < notifications.count else { return }
+        let notifData = notifications[index]
+        guard let data = notifData.image else { return }
         let dir = Const.inboxDirectory
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -341,12 +378,15 @@ final class HUD {
         }
     }
 
-    @objc private func saveFiles() {
-        guard !currentFiles.isEmpty else { return }
+    @objc private func saveFilesAction(_ sender: NSButton) {
+        let index = sender.tag
+        guard index >= 0 && index < notifications.count else { return }
+        let notifData = notifications[index]
+        guard !notifData.files.isEmpty else { return }
         let dir = Const.inboxDirectory
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            for file in currentFiles {
+            for file in notifData.files {
                 var dest = dir.appendingPathComponent(file.name)
                 var i = 1
                 while FileManager.default.fileExists(atPath: dest.path) {
@@ -357,7 +397,7 @@ final class HUD {
                 }
                 try file.data.write(to: dest)
             }
-            show("\(currentFiles.count)件を保存しました")
+            show("\(notifData.files.count)件を保存しました")
             NSWorkspace.shared.open(dir)
         } catch {
             show("保存に失敗しました")
