@@ -16,7 +16,6 @@ final class HUD {
     private var currentFiles: [(name: String, data: Data)] = []
 
     private init() {
-        // 日本語の音声があれば使用
         if let japaneseVoice = NSSpeechSynthesizer.availableVoices.first(where: {
             $0.rawValue.contains("ja") || $0.rawValue.contains("Kyoko") || $0.rawValue.contains("Otoya")
         }) {
@@ -24,7 +23,7 @@ final class HUD {
         }
     }
 
-    // MARK: - 画面上部のトースト（自動で消える）
+    // MARK: - 画面上部のトースト
 
     func show(_ text: String) {
         assert(Thread.isMainThread)
@@ -33,308 +32,282 @@ final class HUD {
         let panel = window ?? makeToastPanel()
         window = panel
 
-        guard let label = panel.contentView?.subviews.compactMap({ $0 as? NSTextField }).first
-        else { return }
+        guard let label = panel.contentView?.subviews.compactMap({ $0 as? NSTextField }).first else { return }
         label.stringValue = text
 
-        let maxWidth: CGFloat = 460
-        let font = label.font ?? NSFont.systemFont(ofSize: 13, weight: .medium)
+        let maxWidth: CGFloat = 500
+        let font = label.font ?? NSFont.systemFont(ofSize: 14, weight: .medium)
         let bounds = (text as NSString).boundingRect(
-            with: NSSize(width: maxWidth, height: 200),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            with: NSSize(width: maxWidth, height: 100),
+            options: [.usesLineFragmentOrigin],
             attributes: [.font: font])
-        let w = min(max(ceil(bounds.width) + 40, 160), maxWidth + 40)
-        let h = max(ceil(bounds.height) + 26, 44)
+        let w = min(max(ceil(bounds.width) + 48, 180), maxWidth + 48)
+        let h: CGFloat = 48
 
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
-            let origin = NSPoint(x: frame.midX - w / 2, y: frame.maxY - h - 50)
+            let origin = NSPoint(x: frame.midX - w / 2, y: frame.maxY - h - 60)
             panel.setFrame(NSRect(origin: origin, size: NSSize(width: w, height: h)), display: false)
         }
-        label.frame = NSRect(x: 20, y: 13, width: w - 40, height: h - 26)
+        label.frame = NSRect(x: 24, y: 14, width: w - 48, height: 20)
 
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.12
+            ctx.duration = 0.15
             panel.animator().alphaValue = 1
         }
 
         let work = DispatchWorkItem { [weak self] in self?.dismissToast() }
         hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: work)
     }
 
     private func dismissToast() {
         guard let panel = window else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.25
+            ctx.duration = 0.2
             panel.animator().alphaValue = 0
         }, completionHandler: { panel.orderOut(nil) })
     }
 
-    // MARK: - 画面中央のメッセージ通知（×ボタンで閉じる）
+    // MARK: - 画面中央のメッセージ通知
 
     func showCenter(_ text: String, attachment: NotifyAttachment, from sender: String) {
         assert(Thread.isMainThread)
 
-        // 現在のパネルを閉じる
         centerWindow?.orderOut(nil)
         centerWindow = nil
 
-        // コンテンツを保存
         currentMessage = text
         currentImage = attachment.image
         currentFiles = attachment.files
 
         let hasImage = attachment.image != nil
         let hasFiles = !attachment.files.isEmpty
+        let hasText = !text.isEmpty
 
-        // パネルを作成
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+        // 画面サイズ
+        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
+        let maxW = screen.width - 80
+        let maxH = screen.height - 80
+
+        // パネル作成
+        let panel = NSPanel(contentRect: .zero,
                             styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered,
-                            defer: false)
+                            backing: .buffered, defer: false)
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.ignoresMouseEvents = false  // インタラクティブ
+        panel.ignoresMouseEvents = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         centerWindow = panel
 
-        // リキッドグラス背景
-        let blur = NSVisualEffectView(frame: panel.contentLayoutRect)
-        blur.material = .hudWindow
-        blur.blendingMode = .behindWindow
-        blur.state = .active
-        blur.wantsLayer = true
-        blur.layer?.cornerRadius = 16
-        blur.layer?.masksToBounds = true
-        blur.autoresizingMask = [.width, .height]
+        // コンテンツサイズ計算
+        let padding: CGFloat = 24
+        let spacing: CGFloat = 16
 
-        // レイアウト計算
-        let padding: CGFloat = 32
-        let buttonHeight: CGFloat = 38
-        let buttonSpacing: CGFloat = 12
+        // メッセージサイズ
+        let msgFont = NSFont.systemFont(ofSize: 32, weight: .medium)
+        let msgBounds = hasText ? (text as NSString).boundingRect(
+            with: NSSize(width: maxW - padding * 2, height: 300),
+            options: [.usesLineFragmentOrigin],
+            attributes: [.font: msgFont]) : .zero
 
-        // 画面サイズを取得して最大サイズを決定（100%表示）
-        let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
-        let maxPanelWidth = screenFrame.width - 40  // 端に少し余白
-        let maxPanelHeight = screenFrame.height - 40
-
-        // メッセージサイズ計算（大きなフォント）
-        let font = NSFont.systemFont(ofSize: 36, weight: .medium)
-        let textBounds = text.isEmpty ? CGRect.zero : (text as NSString).boundingRect(
-            with: NSSize(width: maxPanelWidth - padding * 2, height: 400),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font])
-
-        var contentHeight: CGFloat = 0
-        var panelWidth: CGFloat = max(ceil(textBounds.width) + padding * 2, 450)
-
-        // 送信者ラベル + 閉じるボタンの高さ
-        let headerHeight: CGFloat = 44
-        contentHeight += headerHeight
-
-        // メッセージ高さ
-        if !text.isEmpty {
-            contentHeight += ceil(textBounds.height) + 24
+        // 画像サイズ
+        var imgW: CGFloat = 0, imgH: CGFloat = 0
+        if hasImage, let data = attachment.image, let img = NSImage(data: data) {
+            let availH = maxH - 140 - (hasText ? ceil(msgBounds.height) + spacing : 0)
+            let scale = min((maxW - padding * 2) / img.size.width, availH / img.size.height, 1.0)
+            imgW = img.size.width * scale
+            imgH = img.size.height * scale
         }
 
-        // 画像サイズ（画面に合わせて大きく表示）
-        var imageRect = CGRect.zero
-        if hasImage, let imageData = attachment.image, let nsImage = NSImage(data: imageData) {
-            let imgSize = nsImage.size
-            // 画面の80%まで使用可能
-            let maxImgW = maxPanelWidth - padding * 2
-            let maxImgH = maxPanelHeight - 200  // ヘッダー・ボタン分を確保
-            let scale = min(maxImgW / imgSize.width, maxImgH / imgSize.height, 1.0)
-            let imgW = imgSize.width * scale
-            let imgH = imgSize.height * scale
-            imageRect = CGRect(x: 0, y: 0, width: imgW, height: imgH)
-            panelWidth = max(panelWidth, imgW + padding * 2)
-            contentHeight += imgH + 20
-        }
+        // パネルサイズ
+        var panelW = max(imgW + padding * 2, ceil(msgBounds.width) + padding * 2, 300)
+        var panelH = padding + 32 // ヘッダー
 
-        // ファイル一覧の高さ
-        if hasFiles {
-            contentHeight += CGFloat(attachment.files.count) * 28 + 8
-        }
+        if hasText { panelH += ceil(msgBounds.height) + spacing }
+        if hasImage { panelH += imgH + spacing }
+        if hasFiles { panelH += CGFloat(min(attachment.files.count, 4)) * 32 + spacing }
+        panelH += 56 // アクションバー
 
-        // ボタン行の高さ
-        contentHeight += buttonHeight + padding
+        panelW = min(panelW, maxW)
+        panelH = min(panelH, maxH)
 
-        let panelHeight = min(contentHeight + padding, maxPanelHeight)
-        panelWidth = min(panelWidth, maxPanelWidth)
+        // パネル配置
+        let origin = NSPoint(x: screen.midX - panelW / 2, y: screen.midY - panelH / 2)
+        panel.setFrame(NSRect(origin: origin, size: NSSize(width: panelW, height: panelH)), display: false)
 
-        // パネルサイズ設定
-        if let screen = NSScreen.main {
-            let frame = screen.visibleFrame
-            let origin = NSPoint(x: frame.midX - panelWidth / 2, y: frame.midY - panelHeight / 2)
-            panel.setFrame(NSRect(origin: origin, size: NSSize(width: panelWidth, height: panelHeight)), display: false)
-        }
-        blur.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
+        // 背景
+        let bg = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: panelW, height: panelH))
+        bg.material = .fullScreenUI
+        bg.blendingMode = .behindWindow
+        bg.state = .active
+        bg.wantsLayer = true
+        bg.layer?.cornerRadius = 20
+        bg.layer?.masksToBounds = true
 
-        var yOffset = panelHeight - padding
+        var y = panelH - padding
 
-        // 閉じるボタン（右上）
-        let closeButton = NSButton(frame: NSRect(x: panelWidth - 36, y: yOffset - 24, width: 24, height: 24))
-        closeButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "閉じる")
-        closeButton.bezelStyle = .regularSquare
-        closeButton.isBordered = false
-        closeButton.target = self
-        closeButton.action = #selector(closeCenterPanel)
-        blur.addSubview(closeButton)
+        // ヘッダー: 送信者 + 閉じるボタン
+        let header = NSView(frame: NSRect(x: 0, y: y - 28, width: panelW, height: 28))
 
-        // 送信者ラベル
-        let senderLabel = NSTextField(labelWithString: sender)
-        senderLabel.frame = NSRect(x: padding, y: yOffset - 20, width: panelWidth - padding * 2 - 30, height: 16)
-        senderLabel.font = .systemFont(ofSize: 12, weight: .regular)
-        senderLabel.textColor = .secondaryLabelColor
-        blur.addSubview(senderLabel)
-        yOffset -= headerHeight
+        let senderLbl = NSTextField(labelWithString: "From: \(sender)")
+        senderLbl.frame = NSRect(x: padding, y: 4, width: panelW - 80, height: 20)
+        senderLbl.font = .systemFont(ofSize: 13, weight: .regular)
+        senderLbl.textColor = .secondaryLabelColor
+        header.addSubview(senderLbl)
+
+        let closeBtn = NSButton(frame: NSRect(x: panelW - padding - 28, y: 0, width: 28, height: 28))
+        closeBtn.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "閉じる")
+        closeBtn.symbolConfiguration = .init(pointSize: 18, weight: .regular)
+        closeBtn.bezelStyle = .regularSquare
+        closeBtn.isBordered = false
+        closeBtn.contentTintColor = .secondaryLabelColor
+        closeBtn.target = self
+        closeBtn.action = #selector(closeCenterPanel)
+        header.addSubview(closeBtn)
+
+        bg.addSubview(header)
+        y -= 32
 
         // メッセージ
-        if !text.isEmpty {
-            let messageLabel = NSTextField(labelWithString: text)
-            let msgHeight = ceil(textBounds.height) + 4
-            messageLabel.frame = NSRect(x: padding, y: yOffset - msgHeight, width: panelWidth - padding * 2, height: msgHeight)
-            messageLabel.font = font
-            messageLabel.alignment = .center
-            messageLabel.lineBreakMode = .byWordWrapping
-            messageLabel.maximumNumberOfLines = 6
-            messageLabel.textColor = .labelColor
-            messageLabel.isSelectable = true
-            blur.addSubview(messageLabel)
-            yOffset -= msgHeight + 16
+        if hasText {
+            let msgLbl = NSTextField(labelWithString: text)
+            let h = ceil(msgBounds.height) + 8
+            msgLbl.frame = NSRect(x: padding, y: y - h, width: panelW - padding * 2, height: h)
+            msgLbl.font = msgFont
+            msgLbl.alignment = .center
+            msgLbl.lineBreakMode = .byWordWrapping
+            msgLbl.maximumNumberOfLines = 8
+            msgLbl.textColor = .labelColor
+            msgLbl.isSelectable = true
+            bg.addSubview(msgLbl)
+            y -= h + spacing
         }
 
-        // 画像（大きく表示、角丸16px）
-        if hasImage, let imageData = attachment.image, let nsImage = NSImage(data: imageData) {
-            let imgW = imageRect.width
-            let imgH = imageRect.height
-            let imageView = NSImageView(frame: NSRect(x: (panelWidth - imgW) / 2, y: yOffset - imgH, width: imgW, height: imgH))
-            imageView.image = nsImage
-            imageView.imageScaling = .scaleProportionallyUpOrDown
-            imageView.wantsLayer = true
-            imageView.layer?.cornerRadius = 16
-            imageView.layer?.masksToBounds = true
-            imageView.layer?.borderWidth = 1
-            imageView.layer?.borderColor = NSColor.white.withAlphaComponent(0.1).cgColor
-            blur.addSubview(imageView)
-            yOffset -= imgH + 20
+        // 画像
+        if hasImage, let data = attachment.image, let img = NSImage(data: data) {
+            let imgView = NSImageView(frame: NSRect(x: (panelW - imgW) / 2, y: y - imgH, width: imgW, height: imgH))
+            imgView.image = img
+            imgView.imageScaling = .scaleProportionallyUpOrDown
+            imgView.wantsLayer = true
+            imgView.layer?.cornerRadius = 12
+            imgView.layer?.masksToBounds = true
+            bg.addSubview(imgView)
+            y -= imgH + spacing
         }
 
-        // ファイル一覧
+        // ファイル一覧（最大4件表示）
         if hasFiles {
-            for file in attachment.files {
-                let fileRow = NSView(frame: NSRect(x: padding, y: yOffset - 24, width: panelWidth - padding * 2, height: 24))
-                fileRow.wantsLayer = true
-                fileRow.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
-                fileRow.layer?.cornerRadius = 6
+            let maxShow = min(attachment.files.count, 4)
+            for i in 0..<maxShow {
+                let file = attachment.files[i]
+                let row = NSView(frame: NSRect(x: padding, y: y - 28, width: panelW - padding * 2, height: 28))
+                row.wantsLayer = true
+                row.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+                row.layer?.cornerRadius = 8
 
-                let icon = NSImageView(frame: NSRect(x: 6, y: 4, width: 16, height: 16))
-                if let contentType = UTType(filenameExtension: (file.name as NSString).pathExtension) {
-                    icon.image = NSWorkspace.shared.icon(for: contentType)
+                let icon = NSImageView(frame: NSRect(x: 8, y: 6, width: 16, height: 16))
+                if let ct = UTType(filenameExtension: (file.name as NSString).pathExtension) {
+                    icon.image = NSWorkspace.shared.icon(for: ct)
                 } else {
                     icon.image = NSWorkspace.shared.icon(for: .data)
                 }
-                fileRow.addSubview(icon)
+                row.addSubview(icon)
 
-                let nameLabel = NSTextField(labelWithString: file.name)
-                nameLabel.frame = NSRect(x: 28, y: 4, width: fileRow.bounds.width - 80, height: 16)
-                nameLabel.font = .systemFont(ofSize: 11)
-                nameLabel.textColor = .labelColor
-                nameLabel.lineBreakMode = .byTruncatingMiddle
-                fileRow.addSubview(nameLabel)
+                let name = NSTextField(labelWithString: file.name)
+                name.frame = NSRect(x: 32, y: 6, width: row.bounds.width - 100, height: 16)
+                name.font = .systemFont(ofSize: 12)
+                name.textColor = .labelColor
+                name.lineBreakMode = .byTruncatingMiddle
+                row.addSubview(name)
 
-                let sizeLabel = NSTextField(labelWithString: ByteCountFormatter.string(fromByteCount: Int64(file.data.count), countStyle: .file))
-                sizeLabel.frame = NSRect(x: fileRow.bounds.width - 50, y: 4, width: 44, height: 16)
-                sizeLabel.font = .systemFont(ofSize: 10)
-                sizeLabel.textColor = .secondaryLabelColor
-                sizeLabel.alignment = .right
-                fileRow.addSubview(sizeLabel)
+                let size = NSTextField(labelWithString: ByteCountFormatter.string(fromByteCount: Int64(file.data.count), countStyle: .file))
+                size.frame = NSRect(x: row.bounds.width - 60, y: 6, width: 52, height: 16)
+                size.font = .systemFont(ofSize: 11)
+                size.textColor = .tertiaryLabelColor
+                size.alignment = .right
+                row.addSubview(size)
 
-                blur.addSubview(fileRow)
-                yOffset -= 28
+                bg.addSubview(row)
+                y -= 32
             }
-            yOffset -= 8
+            if attachment.files.count > 4 {
+                let more = NSTextField(labelWithString: "+\(attachment.files.count - 4) more")
+                more.frame = NSRect(x: padding, y: y - 20, width: panelW - padding * 2, height: 16)
+                more.font = .systemFont(ofSize: 11)
+                more.textColor = .tertiaryLabelColor
+                more.alignment = .center
+                bg.addSubview(more)
+            }
         }
 
-        // ボタン行
-        let buttonY = padding / 2
-        var buttonX = padding
+        // アクションバー（アイコンボタン）
+        let actionY: CGFloat = 16
+        let btnSize: CGFloat = 40
+        var buttons: [(icon: String, action: Selector)] = []
 
-        // コピーボタン（メッセージがある場合）
-        if !text.isEmpty {
-            let copyMsgBtn = makeActionButton(title: "テキストをコピー", icon: "doc.on.doc")
-            copyMsgBtn.frame = NSRect(x: buttonX, y: buttonY, width: 130, height: buttonHeight)
-            copyMsgBtn.target = self
-            copyMsgBtn.action = #selector(copyMessage)
-            blur.addSubview(copyMsgBtn)
-            buttonX += 130 + buttonSpacing
-        }
-
-        // 画像をコピー/保存（画像がある場合）
+        if hasText { buttons.append(("doc.on.doc", #selector(copyMessage))) }
         if hasImage {
-            let copyImgBtn = makeActionButton(title: "画像をコピー", icon: "photo.on.rectangle")
-            copyImgBtn.frame = NSRect(x: buttonX, y: buttonY, width: 110, height: buttonHeight)
-            copyImgBtn.target = self
-            copyImgBtn.action = #selector(copyImage)
-            blur.addSubview(copyImgBtn)
-            buttonX += 110 + buttonSpacing
+            buttons.append(("photo.on.rectangle", #selector(copyImage)))
+            buttons.append(("square.and.arrow.down", #selector(saveImage)))
+        }
+        if hasFiles { buttons.append(("folder.badge.plus", #selector(saveFiles))) }
 
-            let saveImgBtn = makeActionButton(title: "画像を保存", icon: "square.and.arrow.down")
-            saveImgBtn.frame = NSRect(x: buttonX, y: buttonY, width: 100, height: buttonHeight)
-            saveImgBtn.target = self
-            saveImgBtn.action = #selector(saveImage)
-            blur.addSubview(saveImgBtn)
-            buttonX += 100 + buttonSpacing
+        let totalW = CGFloat(buttons.count) * btnSize + CGFloat(buttons.count - 1) * 12
+        var btnX = (panelW - totalW) / 2
+
+        for (icon, action) in buttons {
+            let btn = NSButton(frame: NSRect(x: btnX, y: actionY, width: btnSize, height: btnSize))
+            btn.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
+            btn.symbolConfiguration = .init(pointSize: 18, weight: .medium)
+            btn.bezelStyle = .regularSquare
+            btn.isBordered = false
+            btn.wantsLayer = true
+            btn.layer?.cornerRadius = btnSize / 2
+            btn.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
+            btn.contentTintColor = .labelColor
+            btn.target = self
+            btn.action = action
+            bg.addSubview(btn)
+            btnX += btnSize + 12
         }
 
-        // ファイルを保存（ファイルがある場合）
-        if hasFiles {
-            let saveFilesBtn = makeActionButton(title: "ファイルを保存", icon: "folder.badge.plus")
-            saveFilesBtn.frame = NSRect(x: buttonX, y: buttonY, width: 120, height: buttonHeight)
-            saveFilesBtn.target = self
-            saveFilesBtn.action = #selector(saveFiles)
-            blur.addSubview(saveFilesBtn)
-        }
+        panel.contentView = bg
 
-        panel.contentView = blur
-
-        // アニメーション表示
+        // アニメーション
         panel.alphaValue = 0
+        panel.setFrame(NSRect(origin: NSPoint(x: origin.x, y: origin.y - 20),
+                              size: NSSize(width: panelW, height: panelH)), display: false)
         panel.orderFrontRegardless()
+
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.2
+            ctx.duration = 0.25
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
+            panel.animator().setFrame(NSRect(origin: origin, size: NSSize(width: panelW, height: panelH)), display: true)
         }
 
-        // メッセージを読み上げ
-        if !text.isEmpty {
+        // 読み上げ
+        if hasText {
             speechSynthesizer.stopSpeaking()
             speechSynthesizer.startSpeaking(text)
         }
     }
 
-    private func makeActionButton(title: String, icon: String) -> NSButton {
-        let btn = NSButton(frame: .zero)
-        btn.title = title
-        btn.image = NSImage(systemSymbolName: icon, accessibilityDescription: title)
-        btn.imagePosition = .imageLeading
-        btn.bezelStyle = .rounded
-        btn.font = .systemFont(ofSize: 11)
-        return btn
-    }
-
     @objc private func closeCenterPanel() {
         speechSynthesizer.stopSpeaking()
         guard let panel = centerWindow else { return }
+        let frame = panel.frame
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.2
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
+            panel.animator().setFrame(NSRect(origin: NSPoint(x: frame.origin.x, y: frame.origin.y - 20),
+                                             size: frame.size), display: true)
         }, completionHandler: {
             panel.orderOut(nil)
             self.centerWindow = nil
@@ -342,70 +315,61 @@ final class HUD {
     }
 
     @objc private func copyMessage() {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(currentMessage, forType: .string)
-        show("テキストをコピーしました")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(currentMessage, forType: .string)
+        show("コピーしました")
     }
 
     @objc private func copyImage() {
-        guard let imageData = currentImage, let image = NSImage(data: imageData) else { return }
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.writeObjects([image])
+        guard let data = currentImage, let img = NSImage(data: data) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([img])
         show("画像をコピーしました")
     }
 
     @objc private func saveImage() {
-        guard let imageData = currentImage else { return }
-
-        // ClipBridge受信フォルダに直接保存
-        let inboxDir = Const.inboxDirectory
+        guard let data = currentImage else { return }
+        let dir = Const.inboxDirectory
         do {
-            try FileManager.default.createDirectory(at: inboxDir, withIntermediateDirectories: true)
-            let fileName = "ClipBridge-\(Int(Date().timeIntervalSince1970)).png"
-            let destURL = inboxDir.appendingPathComponent(fileName)
-            try imageData.write(to: destURL)
-            show("画像を保存しました: \(fileName)")
-            NSWorkspace.shared.open(inboxDir)
-        } catch {
-            show("保存に失敗しました: \(error.localizedDescription)")
-        }
-    }
-
-    @objc private func saveFiles() {
-        guard !currentFiles.isEmpty else { return }
-
-        // 受信フォルダに保存
-        let inboxDir = Const.inboxDirectory
-        do {
-            try FileManager.default.createDirectory(at: inboxDir, withIntermediateDirectories: true)
-            for file in currentFiles {
-                var destURL = inboxDir.appendingPathComponent(file.name)
-                // 重複回避
-                var counter = 1
-                while FileManager.default.fileExists(atPath: destURL.path) {
-                    let name = (file.name as NSString).deletingPathExtension
-                    let ext = (file.name as NSString).pathExtension
-                    destURL = inboxDir.appendingPathComponent("\(name)-\(counter).\(ext)")
-                    counter += 1
-                }
-                try file.data.write(to: destURL)
-            }
-            show("\(currentFiles.count) 個のファイルを保存しました")
-            NSWorkspace.shared.open(inboxDir)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let name = "image-\(Int(Date().timeIntervalSince1970)).png"
+            try data.write(to: dir.appendingPathComponent(name))
+            show("保存しました")
+            NSWorkspace.shared.open(dir)
         } catch {
             show("保存に失敗しました")
         }
     }
 
-    // MARK: - トーストパネル作成
+    @objc private func saveFiles() {
+        guard !currentFiles.isEmpty else { return }
+        let dir = Const.inboxDirectory
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            for file in currentFiles {
+                var dest = dir.appendingPathComponent(file.name)
+                var i = 1
+                while FileManager.default.fileExists(atPath: dest.path) {
+                    let n = (file.name as NSString).deletingPathExtension
+                    let e = (file.name as NSString).pathExtension
+                    dest = dir.appendingPathComponent("\(n)-\(i).\(e)")
+                    i += 1
+                }
+                try file.data.write(to: dest)
+            }
+            show("\(currentFiles.count)件を保存しました")
+            NSWorkspace.shared.open(dir)
+        } catch {
+            show("保存に失敗しました")
+        }
+    }
+
+    // MARK: - トーストパネル
 
     private func makeToastPanel() -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 260, height: 44),
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 48),
                             styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered,
-                            defer: false)
+                            backing: .buffered, defer: false)
         panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -413,24 +377,22 @@ final class HUD {
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 
-        let blur = NSVisualEffectView(frame: panel.contentLayoutRect)
-        blur.material = .hudWindow
-        blur.blendingMode = .behindWindow
-        blur.state = .active
-        blur.wantsLayer = true
-        blur.layer?.cornerRadius = 12
-        blur.layer?.masksToBounds = true
-        blur.autoresizingMask = [.width, .height]
+        let bg = NSVisualEffectView(frame: panel.contentLayoutRect)
+        bg.material = .hudWindow
+        bg.blendingMode = .behindWindow
+        bg.state = .active
+        bg.wantsLayer = true
+        bg.layer?.cornerRadius = 24
+        bg.layer?.masksToBounds = true
+        bg.autoresizingMask = [.width, .height]
 
         let label = NSTextField(labelWithString: "")
-        label.font = .systemFont(ofSize: 13, weight: .medium)
+        label.font = .systemFont(ofSize: 14, weight: .medium)
         label.alignment = .center
-        label.lineBreakMode = .byTruncatingTail
-        label.maximumNumberOfLines = 2
         label.textColor = .labelColor
-        blur.addSubview(label)
+        bg.addSubview(label)
 
-        panel.contentView = blur
+        panel.contentView = bg
         return panel
     }
 }
