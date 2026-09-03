@@ -119,15 +119,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let panelHeight: CGFloat = 220
 
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
-                            styleMask: [.titled, .closable],
+                            styleMask: [.titled, .closable, .nonactivatingPanel],
                             backing: .buffered,
                             defer: false)
         panel.title = "メッセージを送信"
         panel.titlebarAppearsTransparent = true
         panel.isMovableByWindowBackground = true
-        panel.level = .floating
+        panel.level = .modalPanel  // 最前面に表示
         panel.isFloatingPanel = true
         panel.becomesKeyOnlyIfNeeded = false
+        panel.hidesOnDeactivate = false  // 他のところをクリックしても隠れない
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         // 背景ビュー（ドラッグ&ドロップ対応）
         let bgView = DropTargetView(frame: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
