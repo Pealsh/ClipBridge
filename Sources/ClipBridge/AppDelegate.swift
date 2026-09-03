@@ -116,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         let panelWidth: CGFloat = 400
-        let panelHeight: CGFloat = 180
+        let panelHeight: CGFloat = 220
 
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
                             styleMask: [.titled, .closable],
@@ -129,15 +129,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.isFloatingPanel = true
         panel.becomesKeyOnlyIfNeeded = false
 
-        // 背景ビュー
-        let bgView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
+        // 背景ビュー（ドラッグ&ドロップ対応）
+        let bgView = DropTargetView(frame: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
         bgView.material = .hudWindow
         bgView.blendingMode = .behindWindow
         bgView.state = .active
         bgView.autoresizingMask = [.width, .height]
+        bgView.onDrop = { [weak self, weak panel] urls, image in
+            guard let self, let panel else { return }
+            self.handleDroppedItems(urls: urls, image: image, panel: panel)
+        }
 
         // メッセージ入力フィールド
-        let fieldBg = NSView(frame: NSRect(x: 20, y: 95, width: panelWidth - 40, height: 36))
+        let fieldBg = NSView(frame: NSRect(x: 20, y: 135, width: panelWidth - 40, height: 36))
         fieldBg.wantsLayer = true
         fieldBg.layer?.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.5).cgColor
         fieldBg.layer?.cornerRadius = 10
@@ -154,10 +158,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fieldBg.addSubview(field)
 
         // 添付ボタン行
-        let buttonY: CGFloat = 55
+        let buttonY: CGFloat = 95
 
         // 画像添付ボタン
-        let imageBtn = NSButton(frame: NSRect(x: 20, y: buttonY, width: 100, height: 28))
+        let imageBtn = NSButton(frame: NSRect(x: 20, y: buttonY, width: 80, height: 28))
         imageBtn.title = "画像"
         imageBtn.image = NSImage(systemSymbolName: "photo", accessibilityDescription: "画像")
         imageBtn.imagePosition = .imageLeading
@@ -167,35 +171,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         imageBtn.action = #selector(messageDialogSelectImage(_:))
         bgView.addSubview(imageBtn)
 
-        // フォルダ添付ボタン
-        let fileBtn = NSButton(frame: NSRect(x: 130, y: buttonY, width: 110, height: 28))
-        fileBtn.title = "フォルダ"
-        fileBtn.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "フォルダ")
+        // ファイル添付ボタン（複数選択可能）
+        let fileBtn = NSButton(frame: NSRect(x: 105, y: buttonY, width: 90, height: 28))
+        fileBtn.title = "ファイル"
+        fileBtn.image = NSImage(systemSymbolName: "doc", accessibilityDescription: "ファイル")
         fileBtn.imagePosition = .imageLeading
         fileBtn.bezelStyle = .rounded
         fileBtn.font = .systemFont(ofSize: 12)
         fileBtn.target = self
-        fileBtn.action = #selector(messageDialogSelectFolder(_:))
+        fileBtn.action = #selector(messageDialogSelectFiles(_:))
         bgView.addSubview(fileBtn)
+
+        // ペーストボタン
+        let pasteBtn = NSButton(frame: NSRect(x: 200, y: buttonY, width: 80, height: 28))
+        pasteBtn.title = "貼付"
+        pasteBtn.image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "貼付")
+        pasteBtn.imagePosition = .imageLeading
+        pasteBtn.bezelStyle = .rounded
+        pasteBtn.font = .systemFont(ofSize: 12)
+        pasteBtn.target = self
+        pasteBtn.action = #selector(messageDialogPaste(_:))
+        bgView.addSubview(pasteBtn)
+
+        // クリアボタン
+        let clearBtn = NSButton(frame: NSRect(x: 285, y: buttonY, width: 28, height: 28))
+        clearBtn.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: "クリア")
+        clearBtn.bezelStyle = .rounded
+        clearBtn.target = self
+        clearBtn.action = #selector(messageDialogClear(_:))
+        bgView.addSubview(clearBtn)
+
+        // ドロップエリアのヒント
+        let dropHint = NSTextField(labelWithString: "画像・ファイルをドラッグ＆ドロップ")
+        dropHint.frame = NSRect(x: 20, y: 65, width: panelWidth - 40, height: 20)
+        dropHint.font = .systemFont(ofSize: 11)
+        dropHint.textColor = .tertiaryLabelColor
+        dropHint.alignment = .center
+        bgView.addSubview(dropHint)
 
         // 添付プレビューラベル
         let attachLabel = NSTextField(labelWithString: "")
-        attachLabel.frame = NSRect(x: 240, y: buttonY + 4, width: panelWidth - 260, height: 20)
-        attachLabel.font = .systemFont(ofSize: 11)
+        attachLabel.frame = NSRect(x: 20, y: 45, width: panelWidth - 40, height: 16)
+        attachLabel.font = .systemFont(ofSize: 12, weight: .medium)
         attachLabel.textColor = .secondaryLabelColor
+        attachLabel.alignment = .center
         attachLabel.lineBreakMode = .byTruncatingTail
         attachLabel.tag = 200
         bgView.addSubview(attachLabel)
 
         // 送信先情報
         let infoLabel = NSTextField(labelWithString: "\(peers.count) 台に送信されます")
-        infoLabel.frame = NSRect(x: 20, y: 20, width: 200, height: 16)
+        infoLabel.frame = NSRect(x: 20, y: 15, width: 200, height: 16)
         infoLabel.textColor = .secondaryLabelColor
         infoLabel.font = .systemFont(ofSize: 11)
         bgView.addSubview(infoLabel)
 
         // 送信ボタン
-        let sendBtn = NSButton(frame: NSRect(x: panelWidth - 90, y: 15, width: 70, height: 28))
+        let sendBtn = NSButton(frame: NSRect(x: panelWidth - 90, y: 10, width: 70, height: 28))
         sendBtn.title = "送信"
         sendBtn.bezelStyle = .rounded
         sendBtn.keyEquivalent = "\r"
@@ -216,6 +248,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(field)
+    }
+
+    /// ドロップされたアイテムを処理
+    private func handleDroppedItems(urls: [URL], image: NSImage?, panel: NSPanel) {
+        // 画像がドロップされた場合
+        if let image = image {
+            if let tiffData = image.tiffRepresentation,
+               let bitmap = NSBitmapImageRep(data: tiffData),
+               let pngData = bitmap.representation(using: .png, properties: [:]) {
+                var finalData = pngData
+                if pngData.count > 5 * 1024 * 1024 {
+                    if let resized = resizeImage(image, maxBytes: 5 * 1024 * 1024) {
+                        finalData = resized
+                    }
+                }
+                selectedImageData = finalData
+            }
+        }
+
+        // ファイルがドロップされた場合
+        if !urls.isEmpty {
+            var files: [(name: String, data: Data)] = []
+            var totalSize = 0
+            let maxSize = 50 * 1024 * 1024
+
+            for url in urls {
+                // ディレクトリはスキップ
+                var isDir: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
+                      !isDir.boolValue else { continue }
+
+                guard let data = try? Data(contentsOf: url) else { continue }
+
+                // 画像ファイルの場合は画像として処理
+                let ext = url.pathExtension.lowercased()
+                if ["png", "jpg", "jpeg", "gif", "webp", "heic"].contains(ext) && selectedImageData == nil {
+                    var finalData = data
+                    if data.count > 5 * 1024 * 1024, let img = NSImage(data: data) {
+                        if let resized = resizeImage(img, maxBytes: 5 * 1024 * 1024) {
+                            finalData = resized
+                        }
+                    }
+                    selectedImageData = finalData
+                    continue
+                }
+
+                totalSize += data.count
+                if totalSize > maxSize {
+                    HUD.shared.show("合計サイズが50MBを超えています")
+                    break
+                }
+                files.append((name: url.lastPathComponent, data: data))
+            }
+
+            if !files.isEmpty {
+                selectedFiles.append(contentsOf: files)
+            }
+        }
+
+        updateAttachLabel(in: panel)
     }
 
     private func updateAttachLabel(in panel: NSPanel) {
@@ -256,52 +348,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func messageDialogSelectFolder(_ sender: NSButton) {
+    @objc private func messageDialogSelectFiles(_ sender: NSButton) {
         guard let panel = sender.window as? NSPanel else { return }
 
         let openPanel = NSOpenPanel()
-        openPanel.allowsMultipleSelection = false
-        openPanel.canChooseDirectories = true
-        openPanel.canChooseFiles = false
-        openPanel.message = "送信するフォルダを選択"
+        openPanel.allowsMultipleSelection = true
+        openPanel.canChooseDirectories = false
+        openPanel.canChooseFiles = true
+        openPanel.message = "送信するファイルを選択（複数可）"
 
         openPanel.beginSheetModal(for: panel) { [weak self] response in
-            guard let self, response == .OK, let folderURL = openPanel.url else { return }
+            guard let self, response == .OK else { return }
 
             var files: [(name: String, data: Data)] = []
             var totalSize = 0
             let maxSize = 50 * 1024 * 1024
 
-            // フォルダ内のファイルを取得（サブフォルダは除く）
-            let fm = FileManager.default
-            guard let contents = try? fm.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else {
-                HUD.shared.show("フォルダを読み込めませんでした")
-                return
-            }
-
-            for fileURL in contents {
-                // ディレクトリはスキップ
-                guard let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
-                      resourceValues.isRegularFile == true else { continue }
-
+            for fileURL in openPanel.urls {
                 guard let data = try? Data(contentsOf: fileURL) else { continue }
 
                 totalSize += data.count
                 if totalSize > maxSize {
-                    HUD.shared.show("合計サイズが50MBを超えています（一部のファイルのみ送信）")
+                    HUD.shared.show("合計サイズが50MBを超えています（一部のファイルのみ追加）")
                     break
                 }
                 files.append((name: fileURL.lastPathComponent, data: data))
             }
 
             if files.isEmpty {
-                HUD.shared.show("フォルダ内にファイルがありません")
+                HUD.shared.show("ファイルを読み込めませんでした")
                 return
             }
 
-            self.selectedFiles = files
+            self.selectedFiles.append(contentsOf: files)
             self.updateAttachLabel(in: panel)
         }
+    }
+
+    @objc private func messageDialogPaste(_ sender: NSButton) {
+        guard let panel = sender.window as? NSPanel else { return }
+
+        let pasteboard = NSPasteboard.general
+
+        // 画像をペースト
+        if let imageData = pasteboard.data(forType: .png) {
+            selectedImageData = imageData
+            updateAttachLabel(in: panel)
+            return
+        }
+
+        if let imageData = pasteboard.data(forType: .tiff),
+           let image = NSImage(data: imageData),
+           let tiffData = image.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiffData),
+           let pngData = bitmap.representation(using: .png, properties: [:]) {
+            var finalData = pngData
+            if pngData.count > 5 * 1024 * 1024 {
+                if let resized = resizeImage(image, maxBytes: 5 * 1024 * 1024) {
+                    finalData = resized
+                }
+            }
+            selectedImageData = finalData
+            updateAttachLabel(in: panel)
+            return
+        }
+
+        // ファイルURLをペースト
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], !urls.isEmpty {
+            handleDroppedItems(urls: urls, image: nil, panel: panel)
+            return
+        }
+
+        HUD.shared.show("クリップボードに画像がありません")
+    }
+
+    @objc private func messageDialogClear(_ sender: NSButton) {
+        guard let panel = sender.window as? NSPanel else { return }
+        selectedImageData = nil
+        selectedFiles = []
+        updateAttachLabel(in: panel)
     }
 
     private func resizeImage(_ image: NSImage, maxBytes: Int) -> Data? {
@@ -606,5 +731,54 @@ extension AppDelegate: PeerManagerDelegate {
     func peerManager(_ m: PeerManager, statusDidChange text: String) {
         statusText = text
         rebuildMenu()
+    }
+}
+
+// MARK: - ドラッグ＆ドロップ対応ビュー
+
+final class DropTargetView: NSVisualEffectView {
+
+    var onDrop: (([URL], NSImage?) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([.fileURL, .png, .tiff])
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        registerForDraggedTypes([.fileURL, .png, .tiff])
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let pasteboard = sender.draggingPasteboard
+        if pasteboard.canReadObject(forClasses: [NSURL.self, NSImage.self], options: nil) {
+            return .copy
+        }
+        return []
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let pasteboard = sender.draggingPasteboard
+
+        var urls: [URL] = []
+        var image: NSImage?
+
+        // ファイルURLを取得
+        if let fileURLs = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
+            urls = fileURLs
+        }
+
+        // 画像を取得
+        if let images = pasteboard.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage], let img = images.first {
+            image = img
+        }
+
+        if !urls.isEmpty || image != nil {
+            onDrop?(urls, image)
+            return true
+        }
+
+        return false
     }
 }
