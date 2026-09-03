@@ -114,42 +114,47 @@ final class HUD {
         blur.autoresizingMask = [.width, .height]
 
         // レイアウト計算
-        let maxWidth: CGFloat = 700
-        let padding: CGFloat = 28
-        let buttonHeight: CGFloat = 36
-        let buttonSpacing: CGFloat = 10
+        let padding: CGFloat = 32
+        let buttonHeight: CGFloat = 38
+        let buttonSpacing: CGFloat = 12
 
-        // メッセージサイズ計算（大きめのフォント）
-        let font = NSFont.systemFont(ofSize: 28, weight: .medium)
+        // 画面サイズを取得して最大サイズを決定
+        let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
+        let maxPanelWidth = min(screenFrame.width * 0.85, 1200)
+        let maxPanelHeight = screenFrame.height * 0.85
+
+        // メッセージサイズ計算（大きなフォント）
+        let font = NSFont.systemFont(ofSize: 36, weight: .medium)
         let textBounds = text.isEmpty ? CGRect.zero : (text as NSString).boundingRect(
-            with: NSSize(width: maxWidth - padding * 2, height: 300),
+            with: NSSize(width: maxPanelWidth - padding * 2, height: 400),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font])
 
         var contentHeight: CGFloat = 0
-        var panelWidth: CGFloat = max(ceil(textBounds.width) + padding * 2, 400)
+        var panelWidth: CGFloat = max(ceil(textBounds.width) + padding * 2, 450)
 
         // 送信者ラベル + 閉じるボタンの高さ
-        let headerHeight: CGFloat = 40
+        let headerHeight: CGFloat = 44
         contentHeight += headerHeight
 
         // メッセージ高さ
         if !text.isEmpty {
-            contentHeight += ceil(textBounds.height) + 20
+            contentHeight += ceil(textBounds.height) + 24
         }
 
-        // 画像サイズ（大きめに表示）
+        // 画像サイズ（画面に合わせて大きく表示）
         var imageRect = CGRect.zero
         if hasImage, let imageData = attachment.image, let nsImage = NSImage(data: imageData) {
             let imgSize = nsImage.size
-            let maxImgW: CGFloat = 600
-            let maxImgH: CGFloat = 450
+            // 画面の80%まで使用可能
+            let maxImgW = maxPanelWidth - padding * 2
+            let maxImgH = maxPanelHeight - 200  // ヘッダー・ボタン分を確保
             let scale = min(maxImgW / imgSize.width, maxImgH / imgSize.height, 1.0)
             let imgW = imgSize.width * scale
             let imgH = imgSize.height * scale
             imageRect = CGRect(x: 0, y: 0, width: imgW, height: imgH)
             panelWidth = max(panelWidth, imgW + padding * 2)
-            contentHeight += imgH + 16
+            contentHeight += imgH + 20
         }
 
         // ファイル一覧の高さ
@@ -160,8 +165,8 @@ final class HUD {
         // ボタン行の高さ
         contentHeight += buttonHeight + padding
 
-        let panelHeight = contentHeight + padding
-        panelWidth = min(panelWidth, maxWidth + padding * 2)
+        let panelHeight = min(contentHeight + padding, maxPanelHeight)
+        panelWidth = min(panelWidth, maxPanelWidth)
 
         // パネルサイズ設定
         if let screen = NSScreen.main {
@@ -205,7 +210,7 @@ final class HUD {
             yOffset -= msgHeight + 16
         }
 
-        // 画像（大きく表示、角丸12px）
+        // 画像（大きく表示、角丸16px）
         if hasImage, let imageData = attachment.image, let nsImage = NSImage(data: imageData) {
             let imgW = imageRect.width
             let imgH = imageRect.height
@@ -213,12 +218,12 @@ final class HUD {
             imageView.image = nsImage
             imageView.imageScaling = .scaleProportionallyUpOrDown
             imageView.wantsLayer = true
-            imageView.layer?.cornerRadius = 12
+            imageView.layer?.cornerRadius = 16
             imageView.layer?.masksToBounds = true
             imageView.layer?.borderWidth = 1
-            imageView.layer?.borderColor = NSColor.white.withAlphaComponent(0.15).cgColor
+            imageView.layer?.borderColor = NSColor.white.withAlphaComponent(0.1).cgColor
             blur.addSubview(imageView)
-            yOffset -= imgH + 16
+            yOffset -= imgH + 20
         }
 
         // ファイル一覧
